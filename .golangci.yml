@@ -16,10 +16,20 @@ linters-settings:
     check-exported: false
   unparam:
     check-exported: true
+  cyclop:
+    max-complexity: 18
+  funlen:
+    lines: 120
+    statements: 60
+  nestif:
+    min-complexity: 6
 
 linters:
   enable-all: true
   disable:
+    - gochecknoinits
+    - scopelint
+    - exhaustive
     - lll
     - maligned
     - gochecknoglobals
@@ -28,8 +38,10 @@ linters:
     - paralleltest
     - forbidigo
     - exhaustivestruct
-    - interfacer
+    - interfacer # deprecated
     - forcetypeassert
+    - scopelint # deprecated
+    - ifshort # too many false positives
 
 issues:
   exclude-use-default: false
@@ -41,5 +53,7 @@ issues:
         - noctx
         - funlen
         - dupl
+        - errcheck
+        - errorlint
       path: "_test.go"
 
