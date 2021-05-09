@@ -1,17 +1,11 @@
-# go-library-template
+# High performance resilient in-memory cache for Go
 
-[![Build Status](https://github.com/bool64/go-library-template/workflows/test-unit/badge.svg)](https://github.com/bool64/go-library-template/actions?query=branch%3Amaster+workflow%3Atest-unit)
-[![Coverage Status](https://codecov.io/gh/bool64/go-library-template/branch/master/graph/badge.svg)](https://codecov.io/gh/bool64/go-library-template)
-[![GoDevDoc](https://img.shields.io/badge/dev-doc-00ADD8?logo=go)](https://pkg.go.dev/github.com/bool64/go-library-template)
-[![Time Tracker](https://wakatime.com/badge/github/bool64/go-library-template.svg)](https://wakatime.com/badge/github/bool64/go-library-template)
-![Code lines](https://sloc.xyz/github/bool64/go-library-template/?category=code)
-![Comments](https://sloc.xyz/github/bool64/go-library-template/?category=comments)
+This library defines cache interfaces and provides in-memory implementations.
 
-<!--- TODO Update README.md -->
+[![Build Status](https://github.com/bool64/cache/workflows/test/badge.svg)](https://github.com/bool64/cache/actions?query=branch%3Amaster+workflow%3Atest)
+[![Coverage Status](https://codecov.io/gh/bool64/cache/branch/master/graph/badge.svg)](https://codecov.io/gh/bool64/cache)
+[![GoDevDoc](https://img.shields.io/badge/dev-doc-00ADD8?logo=go)](https://pkg.go.dev/github.com/bool64/cache)
+[![time tracker](https://wakatime.com/badge/github/bool64/cache.svg)](https://wakatime.com/badge/github/bool64/cache)
+![Code lines](https://sloc.xyz/github/bool64/cache/?category=code)
+![Comments](https://sloc.xyz/github/bool64/cache/?category=comments)
 
-Library template with GitHub actions for Go.
-
-## Usage
-
-Create a new repository from this template, check out it and run `./run_me.sh` to replace template name with name of
-your repository.
