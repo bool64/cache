@@ -21,7 +21,7 @@ Main API is a `Get` function that takes a key and a builder function. If value i
 cache and builder function is not invoked. If value is not available in cache, builder function is invoked and the
 result is stored in cache.
 
-```
+```go
 // Get value from cache or the function.
 v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (interface{}, error) {
     // Build value or return error on failure.
@@ -96,9 +96,10 @@ optional eviction are triggered right after expired items check (in the same bac
 
 ### Batch Operations
 
-`ShardedMap` has [`ExpireAll`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.ExpireAll) function to mark all
-entries as expired, so that they are updated on next read and are available as stale values in meantime, this function
-does not affect memory usage.
+[`ShardedMap`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap)
+has [`ExpireAll`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.ExpireAll) function to mark all entries as
+expired, so that they are updated on next read and are available as stale values in meantime, this function does not
+affect memory usage.
 
 In contrast, [`DeleteAll`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.DeleteAll) removes all entries and
 frees the memory, stale values are not available after this operation.
@@ -119,12 +120,14 @@ registered with [`cache.GobRegister`](https://pkg.go.dev/github.com/bool64/cache
 Dumping and walking cache are non-blocking operations and are safe to use together with regular reads/writes,
 performance impact is expected to be negligible.
 
-`HTTPTransfer` is a helper to transfer caches over HTTP. Having multiple cache instances registered, it
-provides `Export` HTTP handler that can be plugged into the HTTP server and serve data for an `Import` function of
-another application instance.
+[`HTTPTransfer`](https://pkg.go.dev/github.com/bool64/cache#HTTPTransfer) is a helper to transfer caches over HTTP.
+Having multiple cache instances registered, it
+provides [`Export`](https://pkg.go.dev/github.com/bool64/cache#HTTPTransfer.Export) HTTP handler that can be plugged
+into the HTTP server and serve data for an [`Import`](https://pkg.go.dev/github.com/bool64/cache#HTTPTransfer.Import)
+function of another application instance.
 
-`HTTPTransfer.Import` fails if cached types differ from the exporting application instance, for example because of
-different versions of applications. The check is based
+[`HTTPTransfer.Import`](https://pkg.go.dev/github.com/bool64/cache#HTTPTransfer.Import) fails if cached types differ
+from the exporting application instance, for example because of different versions of applications. The check is based
 on [`cache.GobTypesHash`](https://pkg.go.dev/github.com/bool64/cache#GobTypesHash)
 that is calculated from cached structures
 during [`cache.GobRegister`](https://pkg.go.dev/github.com/bool64/cache#GobRegister).
@@ -142,9 +145,10 @@ addition to usual responsibilities (cancellation, tracing, etc...), context can 
   flag is set `Read` function should return `ErrNotFound`, therefore bypassing cache. At the same time `Write` operation
   is not affected by this flag, so `SkipRead` can be used to force cache refresh.
 
-A handy use case for `cache.WithSkipRead` could be to implement a debug mode for request processing with no cache. Such
-debug mode can be implemented with HTTP (or other transport) middleware that instruments context under certain
-conditions, for example if a special header is found in request.
+A handy use case for [`cache.WithSkipRead`](https://pkg.go.dev/github.com/bool64/cache#WithSkipRead) could be to
+implement a debug mode for request processing with no cache. Such debug mode can be implemented with HTTP (or other
+transport) middleware that instruments context under certain conditions, for example if a special header is found in
+request.
 
 ### Detached Context
 
