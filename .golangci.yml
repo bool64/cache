@@ -17,16 +17,19 @@ linters-settings:
   unparam:
     check-exported: true
   cyclop:
-    max-complexity: 18
+    max-complexity: 20
   funlen:
     lines: 120
     statements: 60
   nestif:
     min-complexity: 6
+  gocognit:
+    min-complexity: 35
 
 linters:
   enable-all: true
   disable:
+    - noctx
     - gochecknoinits
     - scopelint
     - exhaustive
@@ -42,6 +45,7 @@ linters:
     - forcetypeassert
     - scopelint # deprecated
     - ifshort # too many false positives
+    - golint # deprecated
 
 issues:
   exclude-use-default: false

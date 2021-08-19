@@ -3,6 +3,7 @@ package cache_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"runtime"
 	"strconv"
 	"testing"
@@ -20,7 +21,34 @@ type SomeEntity struct {
 	unexported       string
 }
 
-func TestMemory_Dump(t *testing.T) {
+func ExampleGobRegister_transfer_cache() {
+	// Registering cached type to gob.
+	cache.GobRegister(SomeEntity{})
+
+	c1 := cache.NewShardedMap()
+	c2 := cache.NewShardedMap()
+	ctx := context.Background()
+
+	_ = c1.Write(ctx, []byte("key1"), SomeEntity{
+		SomeField:  "foo",
+		SomeSlice:  []int{1, 2, 3},
+		unexported: "will be lost in transfer",
+	})
+
+	w := bytes.NewBuffer(nil)
+
+	// Transferring data from c1 to c2.
+	_, _ = c1.Dump(w)
+	_, _ = c2.Restore(w)
+
+	v, _ := c2.Read(ctx, []byte("key1"))
+
+	fmt.Println(v.(SomeEntity).SomeField)
+
+	// Output: foo
+}
+
+func TestShardedMap_Dump(t *testing.T) {
 	cache.GobTypesHashReset()
 	cache.GobRegister(SomeEntity{})
 
@@ -63,7 +91,7 @@ func TestMemory_Dump(t *testing.T) {
 	assert.Equal(t, SomeEntity{SomeField: "foo", SomeSlice: []int{1, 2, 3}}, v)
 }
 
-func BenchmarkMemory_Dump(b *testing.B) {
+func BenchmarkShardedMap_Dump(b *testing.B) {
 	cache.GobRegister(SomeEntity{})
 
 	c1 := cache.NewShardedMap()

@@ -26,7 +26,7 @@ type hashedBucket struct {
 	data map[uint64]*entry
 }
 
-// ShardedMap is an in-memory cache backend.
+// ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
 type ShardedMap struct {
 	*shardedMap
 }

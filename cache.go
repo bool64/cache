@@ -41,6 +41,7 @@ type ReadWriter interface {
 type Entry interface {
 	Key() []byte
 	Value() interface{}
+	ExpireAt() time.Time
 }
 
 // Walker calls function for every entry in cache and fails on first error returned by that function.
@@ -58,4 +59,11 @@ type Dumper interface {
 // Restorer restores cache entries from binary dump.
 type Restorer interface {
 	Restore(r io.Reader) (int, error)
+}
+
+// WalkDumpRestorer walks, dumps and restores cache.
+type WalkDumpRestorer interface {
+	Dumper
+	Walker
+	Restorer
 }
