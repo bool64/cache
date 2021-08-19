@@ -12,10 +12,10 @@ type (
 
 // WithTTL adds cache time to live information to context.
 //
-// If there is already ttl in context and updateExisting, then ttl value in original context will be updated.
+// If there is already ttl in context and updateExisting is true, then ttl value in original context will be updated.
 //
 // Updating existing ttl can be useful if ttl information is only available internally during cache value build,
-// in such a case value builder can indicate ttl to external cache backend.
+// in such a case value builder can communicate ttl to external cache backend.
 // For example cache ttl can be derived from HTTP response cache headers of value source.
 //
 // When existing ttl is updated minimal non-zero value is kept.

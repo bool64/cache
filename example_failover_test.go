@@ -61,7 +61,7 @@ func (s Cached) GetByID(ctx context.Context, country string, id int) (Value, err
 	return value.(Value), nil
 }
 
-func ExampleFailover_Get() {
+func ExampleFailover_Get_caching_wrapper() {
 	var service Service
 
 	ctx := context.Background()

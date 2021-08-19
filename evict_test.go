@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMemory_evictHeapInuse(t *testing.T) {
+func TestShardedMap_evictHeapInuse(t *testing.T) {
 	m := NewShardedMap(Config{
 		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
 		ExpirationJitter:   -1,
@@ -43,7 +43,7 @@ func TestMemory_evictHeapInuse(t *testing.T) {
 	}
 }
 
-func TestMemory_evictHeapInuse_disabled(t *testing.T) {
+func TestShardedMap_evictHeapInuse_disabled(t *testing.T) {
 	m := NewShardedMap(Config{
 		HeapInUseSoftLimit: 0, // Setting heap threshold to 0 to disable eviction.
 		ExpirationJitter:   -1,
@@ -61,7 +61,7 @@ func TestMemory_evictHeapInuse_disabled(t *testing.T) {
 	assert.Equal(t, 1000, m.Len())
 }
 
-func TestMemory_evictHeapInuse_skipped(t *testing.T) {
+func TestShardedMap_evictHeapInuse_skipped(t *testing.T) {
 	m := NewShardedMap(Config{
 		HeapInUseSoftLimit: 1e10, // Setting heap threshold to big value to skip eviction.
 		ExpirationJitter:   -1,
@@ -79,7 +79,7 @@ func TestMemory_evictHeapInuse_skipped(t *testing.T) {
 	assert.Equal(t, 1000, m.Len())
 }
 
-func TestMemory_evictHeapInuse_concurrency(t *testing.T) {
+func TestShardedMap_evictHeapInuse_concurrency(t *testing.T) {
 	m := NewShardedMap(Config{
 		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B value to force eviction.
 	}.Use)
