@@ -58,7 +58,7 @@ func newTrait(b backend, config Config) *trait {
 	return t
 }
 
-func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
+func (c *trait) prepareRead(ctx context.Context, ce interface{}, found bool) (interface{}, error) {
 	if !found {
 		if c.log != nil {
 			c.log.Debug(ctx, "cache miss", "name", c.config.Name)
@@ -70,6 +70,8 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 
 		return nil, ErrNotFound
 	}
+
+	cacheEntry := ce.(*entry) // nolint // Panic on type assertion failure is fine here.
 
 	if cacheEntry.E.Before(time.Now()) {
 		if c.log != nil {

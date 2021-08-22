@@ -283,6 +283,7 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 
 		h := xxhash.Sum64(e.K)
 		b := &c.hashedBuckets[h%shards]
+		e := e
 
 		b.Lock()
 		b.data[h] = &e

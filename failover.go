@@ -180,7 +180,7 @@ func (f *Failover) Get(
 			return val, nil
 		}
 
-		return f.waitForValue(ctx, key, keyLock)
+		return f.waitForValue(withoutSkipRead(ctx), key, keyLock)
 	}
 
 	// Pushing expired value with short ttl to serve during update.

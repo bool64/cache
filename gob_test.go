@@ -54,41 +54,70 @@ func TestShardedMap_Dump(t *testing.T) {
 
 	assert.Equal(t, uint64(0xf6c7853229d11f18), cache.GobTypesHash())
 
-	c1 := cache.NewShardedMap()
-	c2 := cache.NewShardedMap()
-	ctx := context.Background()
+	b1 := backends()
+	b2 := backends()
 
-	require.NoError(t, c1.Write(ctx, []byte("key1"), SomeEntity{
-		SomeField:  "foo",
-		SomeSlice:  []int{1, 2, 3},
-		unexported: "will be lost in transfer",
-	}))
-	require.NoError(t, c1.Write(ctx, []byte("key2"), SomeEntity{SomeField: "bar"}))
+	for i, be := range b1 {
+		i := i
+		be := be
 
-	v, err := c1.Read(ctx, []byte("key1"))
+		t.Run(fmt.Sprintf("%T", be), func(t *testing.T) {
+			c1, ok := b1[i].(interface {
+				cache.WalkDumpRestorer
+				cache.ReadWriter
+			})
+			if !ok {
+				return
+			}
 
-	assert.NoError(t, err)
-	assert.Equal(t, SomeEntity{
-		SomeField:  "foo",
-		SomeSlice:  []int{1, 2, 3},
-		unexported: "will be lost in transfer",
-	}, v)
+			c2, ok := b2[i].(interface {
+				cache.WalkDumpRestorer
+				cache.ReadWriter
+			})
+			if !ok {
+				return
+			}
 
-	w := bytes.NewBuffer(nil)
-	n, err := c1.Dump(w)
+			ctx := context.Background()
 
-	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+			require.NoError(t, c1.Write(ctx, []byte("key1"), SomeEntity{
+				SomeField:  "foo",
+				SomeSlice:  []int{1, 2, 3},
+				unexported: "will be lost in transfer",
+			}))
+			require.NoError(t, c1.Write(ctx, []byte("key2"), SomeEntity{SomeField: "bar"}))
 
-	n, err = c2.Restore(w)
+			v, err := c1.Read(ctx, []byte("key1"))
 
-	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+			assert.NoError(t, err)
+			assert.Equal(t, SomeEntity{
+				SomeField:  "foo",
+				SomeSlice:  []int{1, 2, 3},
+				unexported: "will be lost in transfer",
+			}, v)
 
-	v, err = c2.Read(ctx, []byte("key1"))
+			w := bytes.NewBuffer(nil)
+			n, err := c1.Dump(w)
 
-	assert.NoError(t, err)
-	assert.Equal(t, SomeEntity{SomeField: "foo", SomeSlice: []int{1, 2, 3}}, v)
+			require.NoError(t, err)
+			assert.Equal(t, 2, n)
+
+			n, err = c2.Restore(w)
+
+			require.NoError(t, err)
+			assert.Equal(t, 2, n)
+
+			v, err = c2.Read(ctx, []byte("key1"))
+
+			assert.NoError(t, err)
+			assert.Equal(t, SomeEntity{SomeField: "foo", SomeSlice: []int{1, 2, 3}}, v)
+
+			v, err = c2.Read(ctx, []byte("key2"))
+
+			assert.NoError(t, err)
+			assert.Equal(t, SomeEntity{SomeField: "bar"}, v)
+		})
+	}
 }
 
 func BenchmarkShardedMap_Dump(b *testing.B) {

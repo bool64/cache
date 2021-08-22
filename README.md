@@ -104,6 +104,12 @@ affect memory usage.
 In contrast, [`DeleteAll`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.DeleteAll) removes all entries and
 frees the memory, stale values are not available after this operation.
 
+Deleting or expiring all items in multiple caches can be done with help
+of [`cache.Invalidator`](https://pkg.go.dev/github.com/bool64/cache#Invalidator). Deletion/expiration function can be
+appended to `Invalidator.Callbacks` and it will be triggered
+on [`Invalidator.Invalidate`](https://pkg.go.dev/github.com/bool64/cache#Invalidator.Invalidate). This may be useful as
+a debugging/firefighting tool.
+
 [`Len`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.Len) returns currently available number of entries (
 including expired).
 
@@ -131,6 +137,14 @@ from the exporting application instance, for example because of different versio
 on [`cache.GobTypesHash`](https://pkg.go.dev/github.com/bool64/cache#GobTypesHash)
 that is calculated from cached structures
 during [`cache.GobRegister`](https://pkg.go.dev/github.com/bool64/cache#GobRegister).
+
+## Sync Map
+
+[`SyncMap`](https://pkg.go.dev/github.com/bool64/cache#SyncMap)
+implements [`ReadWriter`](https://pkg.go.dev/github.com/bool64/cache#ReadWriter) and few other behaviours with in-memory
+storage backed by standard [`sync.Map`](https://pkg.go.dev/sync#Map). It implements same behaviors
+as [`ShardedMap`](#sharded-map) and can be a replacement. There is slight performance difference in latency and
+usually `ShardedMap` tends to consume less memory.
 
 ## Context
 
