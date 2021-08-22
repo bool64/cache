@@ -95,10 +95,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 }
 
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
-	_, found := c.data.LoadAndDelete(string(key))
-	if !found {
-		return ErrNotFound
-	}
+	c.data.Delete(string(key))
 
 	if c.log != nil {
 		c.log.Debug(ctx, "deleted cache entry",
