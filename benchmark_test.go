@@ -15,46 +15,52 @@ import (
 	"github.com/bool64/cache"
 )
 
-func Benchmark_concurrentRead(b *testing.B) {
+func Benchmark_concurrent(b *testing.B) {
 	for _, cardinality := range []int{1e4} {
 		cardinality := cardinality
 
 		for _, numRoutines := range []int{1, runtime.GOMAXPROCS(0)} {
 			numRoutines := numRoutines
 
-			for _, loader := range []cacheLoader{
-				failoverShardedMap{},
-			} {
-				loader := loader
+			for _, writePercent := range []float64{0, 0.1, 1, 10} {
+				writeEvery := int(100.0 / writePercent)
 
-				b.Run(fmt.Sprintf("%d:%d:%T", cardinality, numRoutines, loader), func(b *testing.B) {
+				for _, loader := range []cacheLoader{
+					failover{writeEvery: writeEvery, f: func() cache.ReadWriter {
+						return cache.NewShardedMap()
+					}},
+					failover{writeEvery: writeEvery, f: func() cache.ReadWriter {
+						return cache.NewSyncMap()
+					}},
+				} {
 					before := heapInUse()
+					c, name := loader.make(b, cardinality)
 
-					c := loader.make(b, cardinality)
+					b.Run(fmt.Sprintf("c%d:g%d:w%.2f%%:%s", cardinality, numRoutines, writePercent, name), func(b *testing.B) {
+						b.ReportAllocs()
+						b.ResetTimer()
 
-					b.ReportAllocs()
-					b.ResetTimer()
+						wg := sync.WaitGroup{}
+						wg.Add(numRoutines)
 
-					wg := sync.WaitGroup{}
-					wg.Add(numRoutines)
+						for r := 0; r < numRoutines; r++ {
+							cnt := b.N / numRoutines
+							if r == 0 {
+								cnt = b.N - cnt*(numRoutines-1)
+							}
 
-					for r := 0; r < numRoutines; r++ {
-						cnt := b.N / numRoutines
-						if r == 0 {
-							cnt = b.N - cnt*(numRoutines-1)
+							go func() {
+								defer wg.Done()
+								c.run(b, cnt)
+							}()
 						}
 
-						go func() {
-							c.run(b, cnt)
-							wg.Done()
-						}()
-					}
-
-					wg.Wait()
-					b.StopTimer()
-					b.ReportMetric(float64(heapInUse()-before)/(1024*1024), "MB/inuse")
-					fmt.Sprintln(c)
-				})
+						wg.Wait()
+						b.StopTimer()
+						b.ReportMetric(float64(heapInUse()-before)/(1024*1024), "MB/inuse")
+						fmt.Sprintln(c)
+					})
+				}
 			}
 		}
 	}
@@ -85,23 +91,26 @@ const (
 )
 
 type cacheLoader interface {
-	make(b *testing.B, cardinality int) cacheLoader
+	make(b *testing.B, cardinality int) (cacheLoader, string)
 	run(b *testing.B, cnt int)
 }
 
-type failoverShardedMap struct {
+type failover struct {
+	f          func() cache.ReadWriter
+	writeEvery int
+
 	c           *cache.Failover
 	cardinality int
 }
 
-func (sbm failoverShardedMap) make(b *testing.B, cardinality int) cacheLoader {
+func (cl failover) make(b *testing.B, cardinality int) (cacheLoader, string) {
 	b.Helper()
 
-	u := cache.NewShardedMap()
+	be := cl.f()
 	ctx := context.Background()
-	c := cache.NewFailover(func(cfg *cache.FailoverConfig) {
-		cfg.Backend = u
-	})
+	c := cache.NewFailover(cache.FailoverConfig{
+		Backend: be,
+	}.Use)
 	buf := make([]byte, 0)
 
 	for i := 0; i < cardinality; i++ {
@@ -118,30 +127,47 @@ func (sbm failoverShardedMap) make(b *testing.B, cardinality int) cacheLoader {
 		}
 	}
 
-	return failoverShardedMap{
+	return failover{
 		c:           c,
 		cardinality: cardinality,
-	}
+		writeEvery:  cl.writeEvery,
+	}, fmt.Sprintf("failover(%T)", be)
 }
 
-func (sbm failoverShardedMap) run(b *testing.B, cnt int) {
+func (cl failover) run(b *testing.B, cnt int) {
 	b.Helper()
 
 	ctx := context.Background()
 	buf := make([]byte, 0, 10)
+	w := 0
 
 	for i := 0; i < cnt; i++ {
-		i := (i ^ 12345) % sbm.cardinality
+		i := (i ^ 12345) % cl.cardinality
 
 		buf = append(buf[:0], []byte(keyPrefix)...)
 		buf = append(buf, []byte(strconv.Itoa(i))...)
 
-		v, err := sbm.c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
-			return smallCachedValue{}, nil
+		w++
+		if w == cl.writeEvery {
+			w = 0
+
+			v, err := cl.c.Get(cache.WithSkipRead(ctx), buf, func(ctx context.Context) (interface{}, error) {
+				return makeCachedValue(i), nil
+			})
+
+			if err != nil || v == nil || v.(smallCachedValue).i != i {
+				b.Fatalf("err: %v, val: %v", err, v)
+			}
+
+			continue
+		}
+
+		v, err := cl.c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+			panic("builder function should not be invoked while reading")
 		})
 
-		if v.(smallCachedValue).i != i || err != nil {
-			b.Fail()
+		if err != nil || v == nil || v.(smallCachedValue).i != i {
+			b.Fatalf("err: %v, val: %v", err, v)
 		}
 	}
 }

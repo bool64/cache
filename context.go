@@ -51,11 +51,16 @@ func WithSkipRead(ctx context.Context) context.Context {
 	return context.WithValue(ctx, skipReadCtxKey{}, true)
 }
 
+// withoutSkipRead returns context with SkipRead flag disabled.
+func withoutSkipRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, skipReadCtxKey{}, false)
+}
+
 // SkipRead returns true if cache read is ignored in context.
 func SkipRead(ctx context.Context) bool {
-	_, ok := ctx.Value(skipReadCtxKey{}).(bool)
+	v, ok := ctx.Value(skipReadCtxKey{}).(bool)
 
-	return ok
+	return ok && v
 }
 
 // detachedContext exposes parent values, but suppresses parent cancellation.
