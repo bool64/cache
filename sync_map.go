@@ -62,7 +62,6 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 
 // Write sets value.
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
-	// ttl := c.config.TimeToLive
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
 		ttl = c.config.TimeToLive
@@ -233,6 +232,8 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 
 			return n, err
 		}
+
+		e := e
 
 		c.data.Store(string(e.K), &e)
 
