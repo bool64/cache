@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -19,11 +20,19 @@ var (
 	_ Deleter    = &shardedMap{}
 )
 
-const shards = 128
+const (
+	shards        = 128
+	cacheLineSize = 64
+)
 
-type hashedBucket struct {
+type hashedBucketInternal struct {
 	sync.RWMutex
 	data map[uint64]*entry
+}
+
+type hashedBucket struct {
+	hashedBucketInternal
+	pad [cacheLineSize - unsafe.Sizeof(hashedBucketInternal{})]byte //nolint
 }
 
 // ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
