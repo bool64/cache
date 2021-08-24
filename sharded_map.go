@@ -62,6 +62,38 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 	return C
 }
 
+// Load returns the value stored in the map for a key, or nil if no
+// value is present.
+// The ok result indicates whether value was found in the map.
+func (c *shardedMap) Load(key []byte) (interface{}, bool) {
+	h := xxhash.Sum64(key)
+	b := &c.hashedBuckets[h%shards]
+	b.RLock()
+	defer b.RUnlock()
+
+	cacheEntry, found := b.data[h]
+
+	if !found || !bytes.Equal(cacheEntry.K, key) {
+		return nil, false
+	}
+
+	return cacheEntry.V, true
+}
+
+// Store sets the value for a key.
+func (c *shardedMap) Store(key []byte, val interface{}) {
+	h := xxhash.Sum64(key)
+	b := &c.hashedBuckets[h%shards]
+	b.Lock()
+	defer b.Unlock()
+
+	// Copy key to allow mutations of original argument.
+	k := make([]byte, len(key))
+	copy(k, key)
+
+	b.data[h] = &entry{V: val, K: k}
+}
+
 // Read gets value.
 func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 	if SkipRead(ctx) {
@@ -74,10 +106,15 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 	cacheEntry, found := b.data[h]
 	b.RUnlock()
 
+	if !found || !bytes.Equal(cacheEntry.K, key) {
+		cacheEntry = nil
+		found = false
+	}
+
 	return c.prepareRead(ctx, cacheEntry, found)
 }
 
-// Write sets value.
+// Write sets value by the key.
 func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	h := xxhash.Sum64(k)
 	b := &c.hashedBuckets[h%shards]
@@ -116,6 +153,9 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	return nil
 }
 
+// Delete removes value by the key.
+//
+// It fails with ErrNotFound if key does not exist.
 func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
@@ -267,11 +307,12 @@ func (c *ShardedMap) Dump(w io.Writer) (int, error) {
 func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
-		e       entry
 		n       = 0
 	)
 
 	for {
+		var e entry
+
 		err := decoder.Decode(&e)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -283,7 +324,6 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 
 		h := xxhash.Sum64(e.K)
 		b := &c.hashedBuckets[h%shards]
-		e := e
 
 		b.Lock()
 		b.data[h] = &e

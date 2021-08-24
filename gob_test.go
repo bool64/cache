@@ -48,7 +48,7 @@ func ExampleGobRegister_transfer_cache() {
 	// Output: foo
 }
 
-func TestShardedMap_Dump(t *testing.T) {
+func Test_DumpRestore(t *testing.T) {
 	cache.GobTypesHashReset()
 	cache.GobRegister(SomeEntity{})
 
@@ -109,12 +109,12 @@ func TestShardedMap_Dump(t *testing.T) {
 
 			v, err = c2.Read(ctx, []byte("key1"))
 
-			assert.NoError(t, err)
+			assert.NoError(t, err, "missing value for key1")
 			assert.Equal(t, SomeEntity{SomeField: "foo", SomeSlice: []int{1, 2, 3}}, v)
 
 			v, err = c2.Read(ctx, []byte("key2"))
 
-			assert.NoError(t, err)
+			assert.NoError(t, err, "missing value for key2")
 			assert.Equal(t, SomeEntity{SomeField: "bar"}, v)
 		})
 	}

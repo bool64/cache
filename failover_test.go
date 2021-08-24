@@ -893,3 +893,79 @@ func TestFailover_Get_alwaysFail(t *testing.T) {
 		})
 	}
 }
+
+// failover is a benchmark runner.
+type failover struct {
+	f func() cache.ReadWriter
+
+	c           *cache.Failover
+	cardinality int
+}
+
+func (cl failover) make(b *testing.B, cardinality int) (cacheLoader, string) {
+	b.Helper()
+
+	be := cl.f()
+	ctx := context.Background()
+	c := cache.NewFailover(cache.FailoverConfig{
+		Backend: be,
+	}.Use)
+	buf := make([]byte, 0)
+
+	for i := 0; i < cardinality; i++ {
+		i := i
+
+		buf = append(buf[:0], []byte(keyPrefix)...)
+		buf = append(buf, []byte(strconv.Itoa(i))...)
+
+		_, err := c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+			return makeCachedValue(i), nil
+		})
+		if err != nil {
+			b.Fail()
+		}
+	}
+
+	return failover{
+		c:           c,
+		cardinality: cardinality,
+	}, fmt.Sprintf("failover(%T)", be)
+}
+
+func (cl failover) run(b *testing.B, cnt int, writeEvery int) {
+	b.Helper()
+
+	ctx := context.Background()
+	buf := make([]byte, 0, 10)
+	w := 0
+
+	for i := 0; i < cnt; i++ {
+		i := (i ^ 12345) % cl.cardinality
+
+		buf = append(buf[:0], []byte(keyPrefix)...)
+		buf = append(buf, []byte(strconv.Itoa(i))...)
+
+		w++
+		if w == writeEvery {
+			w = 0
+
+			v, err := cl.c.Get(cache.WithSkipRead(ctx), buf, func(ctx context.Context) (interface{}, error) {
+				return makeCachedValue(i), nil
+			})
+
+			if err != nil || v == nil || v.(smallCachedValue).i != i {
+				b.Fatalf("err: %v, val: %v", err, v)
+			}
+
+			continue
+		}
+
+		v, err := cl.c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+			panic("builder function should not be invoked while reading")
+		})
+
+		if err != nil || v == nil || v.(smallCachedValue).i != i {
+			b.Fatalf("err: %v, val: %v", err, v)
+		}
+	}
+}
