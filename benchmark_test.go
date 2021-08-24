@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bool64/cache"
 )
@@ -68,6 +69,8 @@ func heapInUse() int64 {
 
 		prevInUse = m.HeapInuse
 		prevNumGC = m.NumGC
+
+		time.Sleep(50 * time.Millisecond)
 
 		runtime.GC()
 	}
