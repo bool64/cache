@@ -52,7 +52,7 @@ func Benchmark_ShardedByteMap_concurrent(b *testing.B) {
 	wg.Wait()
 }
 
-func heapInUse() uint64 {
+func heapInUse() int64 {
 	var (
 		m         = runtime.MemStats{}
 		prevInUse uint64
@@ -72,7 +72,7 @@ func heapInUse() uint64 {
 		runtime.GC()
 	}
 
-	return m.HeapInuse
+	return int64(m.HeapInuse)
 }
 
 // Benchmark_Failover_noSyncRead-8   	 7716646	       148.8 ns/op	       0 B/op	       0 allocs/op.
