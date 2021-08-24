@@ -131,7 +131,7 @@ func (cl syncMapBaseline) make(b *testing.B, cardinality int) (cacheLoader, stri
 	return syncMapBaseline{
 		c:           c,
 		cardinality: cardinality,
-	}, "sync.Map"
+	}, "sync.Map-base"
 }
 
 func (cl syncMapBaseline) run(b *testing.B, cnt int, writeEvery int) {

@@ -63,6 +63,7 @@ func Benchmark_concurrent(b *testing.B) {
 			now := time.Now()
 			c, name := loader.make(b, tc.cardinality)
 			preload := time.Since(now)
+			inUse := float64(heapInUse()-before) / (1024 * 1024)
 
 			b.Run(fmt.Sprintf("c%d:g%d:w%.2f%%:%s", tc.cardinality, tc.numRoutines, tc.writePercent, name), func(b *testing.B) {
 				c := c
@@ -88,8 +89,8 @@ func Benchmark_concurrent(b *testing.B) {
 				wg.Wait()
 				b.StopTimer()
 
-				b.ReportMetric(float64(heapInUse()-before)/(1024*1024), "MB/inuse")
-				b.ReportMetric(1000*preload.Seconds(), "ms/preload")
+				b.ReportMetric(inUse, "MB/inuse")                    // Memory footprint of preloaded data.
+				b.ReportMetric(1000*preload.Seconds(), "ms/preload") // Time to populate initial data.
 				fmt.Sprintln(c)
 			})
 		}
