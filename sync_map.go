@@ -75,7 +75,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	c.data.Store(string(k), &entry{V: v, K: key, E: time.Now().Add(ttl)})
+	c.data.Store(string(k), entry{V: v, K: key, E: time.Now().Add(ttl)})
 
 	if c.log != nil {
 		c.log.Debug(ctx, "wrote to cache",
@@ -113,9 +113,10 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(entry) // nolint // Panic on type assertion failure is fine here.
 
 		cacheEntry.E = now
+		c.data.Store(key, cacheEntry)
 		cnt++
 
 		return true
@@ -153,7 +154,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 
 func (c *syncMap) deleteExpiredBefore(expirationBoundary time.Time) {
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(entry) // nolint // Panic on type assertion failure is fine here.
 		if cacheEntry.E.Before(expirationBoundary) {
 			c.data.Delete(key)
 		}
@@ -186,7 +187,7 @@ func (c *syncMap) Walk(walkFn func(e Entry) error) (int, error) {
 	var lastErr error
 
 	c.data.Range(func(key, value interface{}) bool {
-		err := walkFn(value.(*entry))
+		err := walkFn(value.(entry))
 		if err != nil {
 			lastErr = err
 
@@ -220,11 +221,12 @@ func (c *SyncMap) Dump(w io.Writer) (int, error) {
 func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
-		e       entry
 		n       = 0
 	)
 
 	for {
+		var e entry
+
 		err := decoder.Decode(&e)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -234,9 +236,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 			return n, err
 		}
 
-		e := e
-
-		c.data.Store(string(e.K), &e)
+		c.data.Store(string(e.K), e)
 
 		n++
 	}
@@ -260,7 +260,7 @@ func (c *syncMap) evictOldest() {
 
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
-		i := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		i := value.(entry) // nolint // Panic on type assertion failure is fine here.
 		entries = append(entries, en{expireAt: i.E, key: string(i.K)})
 
 		return true

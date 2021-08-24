@@ -71,7 +71,7 @@ func (c *trait) prepareRead(ctx context.Context, ce interface{}, found bool) (in
 		return nil, ErrNotFound
 	}
 
-	cacheEntry := ce.(*entry) // nolint // Panic on type assertion failure is fine here.
+	cacheEntry := ce.(entry) // nolint // Panic on type assertion failure is fine here.
 
 	if cacheEntry.E.Before(time.Now()) {
 		if c.log != nil {
@@ -227,7 +227,7 @@ func (e entry) ExpireAt() time.Time {
 }
 
 type errExpired struct {
-	entry *entry
+	entry entry
 }
 
 func (e errExpired) Error() string {

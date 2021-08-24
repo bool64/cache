@@ -23,7 +23,7 @@ const shards = 128
 
 type hashedBucket struct {
 	sync.RWMutex
-	data map[uint64]*entry
+	data map[uint64]entry
 }
 
 // ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
@@ -45,7 +45,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 	}
 
 	for i := 0; i < shards; i++ {
-		c.hashedBuckets[i].data = make(map[uint64]*entry)
+		c.hashedBuckets[i].data = make(map[uint64]entry)
 	}
 
 	cfg := Config{}
@@ -91,7 +91,7 @@ func (c *shardedMap) Store(key []byte, val interface{}) {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	b.data[h] = &entry{V: val, K: k}
+	b.data[h] = entry{V: val, K: k}
 }
 
 // Read gets value.
@@ -107,7 +107,6 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 	b.RUnlock()
 
 	if !found || !bytes.Equal(cacheEntry.K, key) {
-		cacheEntry = nil
 		found = false
 	}
 
@@ -135,7 +134,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &entry{V: v, K: key, E: time.Now().Add(ttl)}
+	b.data[h] = entry{V: v, K: key, E: time.Now().Add(ttl)}
 
 	if c.log != nil {
 		c.log.Debug(ctx, "wrote to cache",
@@ -326,7 +325,7 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 		b := &c.hashedBuckets[h%shards]
 
 		b.Lock()
-		b.data[h] = &e
+		b.data[h] = e
 		b.Unlock()
 
 		n++
