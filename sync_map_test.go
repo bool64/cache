@@ -3,6 +3,8 @@ package cache_test
 import (
 	"context"
 	"runtime"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,4 +105,60 @@ func TestNewSyncMap(t *testing.T) {
 cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())
+}
+
+// syncMapBaseline is a benchmark runner.
+type syncMapBaseline struct {
+	c           *sync.Map
+	cardinality int
+}
+
+func (cl syncMapBaseline) make(b *testing.B, cardinality int) (cacheLoader, string) {
+	b.Helper()
+
+	c := &sync.Map{}
+	buf := make([]byte, 0)
+
+	for i := 0; i < cardinality; i++ {
+		i := i
+
+		buf = append(buf[:0], []byte(keyPrefix)...)
+		buf = append(buf, []byte(strconv.Itoa(i))...)
+
+		c.Store(string(buf), makeCachedValue(i))
+	}
+
+	return syncMapBaseline{
+		c:           c,
+		cardinality: cardinality,
+	}, "sync.Map"
+}
+
+func (cl syncMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
+	b.Helper()
+
+	buf := make([]byte, 0, 10)
+	w := 0
+
+	for i := 0; i < cnt; i++ {
+		i := (i ^ 12345) % cl.cardinality
+
+		buf = append(buf[:0], []byte(keyPrefix)...)
+		buf = append(buf, []byte(strconv.Itoa(i))...)
+
+		w++
+		if w == writeEvery {
+			w = 0
+
+			cl.c.Store(string(buf), makeCachedValue(i))
+
+			continue
+		}
+
+		v, found := cl.c.Load(string(buf))
+
+		if !found || v == nil || v.(smallCachedValue).i != i {
+			b.Fatalf("found: %v, val: %v", found, v)
+		}
+	}
 }

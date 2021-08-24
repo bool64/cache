@@ -60,7 +60,7 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 	return c.prepareRead(ctx, cacheEntry, found)
 }
 
-// Write sets value.
+// Write sets value by the key.
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
@@ -93,6 +93,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	return nil
 }
 
+// Delete removes values by the key.
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 	c.data.Delete(string(key))
 
