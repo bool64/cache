@@ -59,6 +59,12 @@ func (fc FailoverConfig) Use(cfg *FailoverConfig) {
 	*cfg = fc
 }
 
+type kl struct {
+	val  interface{}
+	err  error
+	lock chan struct{}
+}
+
 // Failover is a cache frontend to manage cache updates in a non-conflicting and performant way.
 //
 // Please use NewFailover to create instance.
@@ -67,8 +73,8 @@ type Failover struct {
 	Errors *ShardedMap
 
 	backend  ReadWriter
-	lock     sync.Mutex               // Securing keyLocks
-	keyLocks map[string]chan struct{} // Preventing update concurrency per key
+	lock     sync.Mutex     // Securing keyLocks
+	keyLocks map[string]*kl // Preventing update concurrency per key
 	config   FailoverConfig
 	log      ctxd.Logger
 	stat     stats.Tracker
@@ -118,7 +124,7 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 		}.Use)
 	}
 
-	f.keyLocks = make(map[string]chan struct{})
+	f.keyLocks = make(map[string]*kl)
 
 	return f
 }
@@ -144,13 +150,13 @@ func (f *Failover) Get(
 
 	// Locking key for update or finding active lock.
 	f.lock.Lock()
-	var keyLock chan struct{}
+	var keyLock *kl
 
 	alreadyLocked := false
 
 	keyLock, alreadyLocked = f.keyLocks[string(key)]
 	if !alreadyLocked {
-		keyLock = make(chan struct{})
+		keyLock = &kl{lock: make(chan struct{})}
 		f.keyLocks[string(key)] = keyLock
 	}
 	f.lock.Unlock()
@@ -160,7 +166,7 @@ func (f *Failover) Get(
 		if !alreadyLocked {
 			f.lock.Lock()
 			delete(f.keyLocks, string(key))
-			close(keyLock)
+			close(keyLock.lock)
 			f.lock.Unlock()
 		}
 	}()
@@ -169,6 +175,10 @@ func (f *Failover) Get(
 	if f.config.SyncRead {
 		// Checking for valid value in cache store.
 		if value, err = f.backend.Read(ctx, key); err == nil {
+			if !alreadyLocked {
+				keyLock.val = value
+			}
+
 			return value, nil
 		}
 	}
@@ -194,6 +204,8 @@ func (f *Failover) Get(
 
 	// Check if update failed recently.
 	if err := f.recentlyFailed(ctx, key); err != nil {
+		keyLock.err = err
+
 		return nil, err
 	}
 
@@ -202,12 +214,12 @@ func (f *Failover) Get(
 
 	// Running cache build synchronously.
 	if syncUpdate {
-		updated, err := f.doBuild(ctx, key, value, buildFunc)
+		keyLock.val, keyLock.err = f.doBuild(ctx, key, value, buildFunc)
 		// Return stale value if update fails.
-		if err != nil {
+		if keyLock.err != nil {
 			if f.log != nil {
 				f.log.Warn(ctx, "failed to update stale cache value",
-					"error", err,
+					"error", keyLock.err,
 					"name", f.config.Name,
 					"key", key)
 			}
@@ -217,7 +229,7 @@ func (f *Failover) Get(
 			}
 		}
 
-		return updated, err
+		return keyLock.val, keyLock.err
 	}
 
 	// Disabling defer to unlock in background.
@@ -227,14 +239,14 @@ func (f *Failover) Get(
 		defer func() {
 			f.lock.Lock()
 			delete(f.keyLocks, string(key))
-			close(keyLock)
+			close(keyLock.lock)
 			f.lock.Unlock()
 		}()
 
-		_, err := f.doBuild(ctx, key, value, buildFunc)
-		if err != nil && f.log != nil {
+		keyLock.val, keyLock.err = f.doBuild(ctx, key, value, buildFunc)
+		if keyLock.err != nil && f.log != nil {
 			f.log.Warn(ctx, "failed to update cache value in background",
-				"error", err,
+				"error", keyLock.err,
 				"name", f.config.Name,
 				"key", key)
 		}
@@ -255,33 +267,15 @@ func (f *Failover) freshEnough(err error) (interface{}, bool) {
 	return nil, false
 }
 
-func (f *Failover) waitForValue(ctx context.Context, key []byte, keyLock chan struct{}) (interface{}, error) {
+func (f *Failover) waitForValue(ctx context.Context, key []byte, keyLock *kl) (interface{}, error) {
 	if f.log != nil {
 		f.log.Debug(ctx, "waiting for cache value", "name", f.config.Name, "key", key)
 	}
 
 	// Waiting for value built by keyLock owner.
-	<-keyLock
+	<-keyLock.lock
 
-	// Recurse to check and return the just-updated value.
-	value, err := f.backend.Read(ctx, key)
-	if err == nil {
-		return value, nil
-	}
-
-	var errExpired ErrWithExpiredItem
-	if errors.As(err, &errExpired) {
-		return errExpired.Value(), nil
-	}
-
-	if errors.Is(err, ErrNotFound) {
-		// Check if update failed recently.
-		if err := f.recentlyFailed(ctx, key); err != nil {
-			return nil, err
-		}
-	}
-
-	return value, err
+	return keyLock.val, keyLock.err
 }
 
 func (f *Failover) refreshStale(ctx context.Context, key []byte, value interface{}) error {

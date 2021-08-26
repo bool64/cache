@@ -184,7 +184,7 @@ func (cl backend) run(b *testing.B, cnt int, writeEvery int) {
 				b.Fatalf("err: %v", err)
 			}
 
-			if err = cl.d.Delete(ctx, buf); err != nil {
+			if err = cl.d.Delete(ctx, buf); err != nil && err != cache.ErrNotFound {
 				b.Fatalf("err: %v", err)
 			}
 

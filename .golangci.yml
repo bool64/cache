@@ -19,7 +19,7 @@ linters-settings:
   cyclop:
     max-complexity: 20
   funlen:
-    lines: 120
+    lines: 125
     statements: 60
   nestif:
     min-complexity: 6
