@@ -138,6 +138,7 @@ func (cl shardedMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
 
 	buf := make([]byte, 0, 10)
 	w := 0
+	ctx := context.Background()
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % cl.cardinality
@@ -149,7 +150,13 @@ func (cl shardedMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
 		if w == writeEvery {
 			w = 0
 
+			buf = append(buf, 'n') // Insert new key.
+
 			cl.c.Store(buf, makeCachedValue(i))
+
+			if err := cl.c.Delete(ctx, buf); err != nil {
+				b.Fatalf("err: %v", err)
+			}
 
 			continue
 		}

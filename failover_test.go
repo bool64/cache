@@ -899,6 +899,7 @@ type failover struct {
 	f func() cache.ReadWriter
 
 	c           *cache.Failover
+	d           cache.Deleter
 	cardinality int
 }
 
@@ -928,6 +929,7 @@ func (cl failover) make(b *testing.B, cardinality int) (cacheLoader, string) {
 
 	return failover{
 		c:           c,
+		d:           be.(cache.Deleter),
 		cardinality: cardinality,
 	}, fmt.Sprintf("failover(%T)", be)
 }
@@ -949,12 +951,18 @@ func (cl failover) run(b *testing.B, cnt int, writeEvery int) {
 		if w == writeEvery {
 			w = 0
 
-			v, err := cl.c.Get(cache.WithSkipRead(ctx), buf, func(ctx context.Context) (interface{}, error) {
+			buf = append(buf, 'n') // Insert new key.
+
+			v, err := cl.c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
 				return makeCachedValue(i), nil
 			})
 
 			if err != nil || v == nil || v.(smallCachedValue).i != i {
 				b.Fatalf("err: %v, val: %v", err, v)
+			}
+
+			if err = cl.d.Delete(ctx, buf); err != nil {
+				b.Fatalf("err: %v", err)
 			}
 
 			continue
