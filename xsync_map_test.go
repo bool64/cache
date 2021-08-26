@@ -2,9 +2,9 @@ package cache_test
 
 import (
 	"context"
+	"github.com/puzpuzpuz/xsync"
 	"runtime"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
@@ -109,14 +109,14 @@ cache_write{name="test"} 1`, st.Metrics())
 
 // xsyncMapBaseline is a benchmark runner.
 type xsyncMapBaseline struct {
-	c           *sync.Map
+	c           *xsync.Map
 	cardinality int
 }
 
 func (cl xsyncMapBaseline) make(b *testing.B, cardinality int) (cacheLoader, string) {
 	b.Helper()
 
-	c := &sync.Map{}
+	c := xsync.NewMap()
 	buf := make([]byte, 0)
 
 	for i := 0; i < cardinality; i++ {
