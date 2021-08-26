@@ -24,7 +24,7 @@ const shards = 128
 type hashedBucket struct {
 	sync.RWMutex
 	data map[uint64]*entry
-	pad  [32]byte // pad struct so that resulting size matched cacheline (64 bytes).
+	_    [32]byte // pad struct to avoid false sharing on 64 byte cache lines.
 }
 
 // ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
