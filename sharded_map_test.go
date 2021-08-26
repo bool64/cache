@@ -154,7 +154,7 @@ func (cl shardedMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
 
 			cl.c.Store(buf, makeCachedValue(i))
 
-			if err := cl.c.Delete(ctx, buf); err != nil {
+			if err := cl.c.Delete(ctx, buf); err != nil && err != cache.ErrNotFound {
 				b.Fatalf("err: %v", err)
 			}
 

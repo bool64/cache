@@ -596,8 +596,8 @@ func TestFailover_Get_lowCardinalityKey(t *testing.T) {
 				}
 			}
 
-			// Written value is returned without hitting cache.
-			assert.Equal(t, n-expectedWrites, st.Int(cache.MetricHit))
+			// Every operation is either hit or miss, misses wait for value without reading cache.
+			assert.Equal(t, n+expectedWrites, st.Int(cache.MetricHit)+st.Int(cache.MetricMiss))
 		})
 	}
 }
@@ -961,8 +961,8 @@ func (cl failover) run(b *testing.B, cnt int, writeEvery int) {
 				b.Fatalf("err: %v, val: %v", err, v)
 			}
 
-			if err = cl.d.Delete(ctx, buf); err != nil {
-				b.Fatalf("err: %v", err)
+			if err = cl.d.Delete(ctx, buf); err != nil && err != cache.ErrNotFound {
+				b.Fatalf("err: %v, key: %s", err, string(buf))
 			}
 
 			continue
