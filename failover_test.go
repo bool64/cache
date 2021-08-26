@@ -949,6 +949,8 @@ func (cl failover) run(b *testing.B, cnt int, writeEvery int) {
 		if w == writeEvery {
 			w = 0
 
+			buf = append(buf, 'n') // Insert new key.
+
 			v, err := cl.c.Get(cache.WithSkipRead(ctx), buf, func(ctx context.Context) (interface{}, error) {
 				return makeCachedValue(i), nil
 			})

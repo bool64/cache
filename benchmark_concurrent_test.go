@@ -175,6 +175,8 @@ func (cl backend) run(b *testing.B, cnt int, writeEvery int) {
 		if w == writeEvery {
 			w = 0
 
+			buf = append(buf, 'n') // Insert new key.
+
 			err := cl.be.Write(ctx, buf, makeCachedValue(i))
 			if err != nil {
 				b.Fatalf("err: %v", err)
