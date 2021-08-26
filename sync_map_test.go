@@ -153,6 +153,7 @@ func (cl syncMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
 			buf = append(buf, 'n') // Insert new key.
 
 			cl.c.Store(string(buf), makeCachedValue(i))
+			cl.c.Delete(string(buf))
 
 			continue
 		}
