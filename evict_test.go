@@ -16,6 +16,7 @@ func backends(options ...func(*Config)) []ReadWriter {
 	return []ReadWriter{
 		NewShardedMap(options...),
 		NewSyncMap(options...),
+		NewXsyncMap(options...),
 	}
 }
 
