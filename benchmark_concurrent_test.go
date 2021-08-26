@@ -24,6 +24,9 @@ func Benchmark_concurrent(b *testing.B) {
 		failover{f: func() cache.ReadWriter {
 			return cache.NewSyncMap()
 		}},
+		failover{f: func() cache.ReadWriter {
+			return cache.NewXsyncMap()
+		}},
 	)
 
 	// nolint:gocritic
@@ -34,8 +37,12 @@ func Benchmark_concurrent(b *testing.B) {
 		backend{f: func() cache.ReadWriter {
 			return cache.NewSyncMap()
 		}},
+		backend{f: func() cache.ReadWriter {
+			return cache.NewXsyncMap()
+		}},
 
 		syncMapBaseline{},
+		xsyncMapBaseline{},
 		shardedMapBaseline{},
 	)
 

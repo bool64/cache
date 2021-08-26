@@ -7,6 +7,7 @@ require (
 	github.com/bool64/dev v0.1.41
 	github.com/bool64/stats v0.2.1
 	github.com/cespare/xxhash/v2 v2.1.1
+	github.com/puzpuzpuz/xsync v1.0.2
 	github.com/stretchr/testify v1.4.0
 	github.com/swaggest/assertjson v1.6.4
 )

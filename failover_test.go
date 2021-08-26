@@ -22,6 +22,7 @@ func backends(options ...func(*cache.Config)) []cache.ReadWriter {
 	return []cache.ReadWriter{
 		cache.NewShardedMap(options...),
 		cache.NewSyncMap(options...),
+		cache.NewXsyncMap(options...),
 	}
 }
 
