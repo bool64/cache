@@ -12,22 +12,22 @@ import (
 	"github.com/bool64/cache"
 )
 
-func Benchmark_concurrent(b *testing.B) {
-	dflt := []cacheLoader{
+var (
+	dflt = []cacheLoader{
 		failover{f: func() cache.ReadWriter {
 			return cache.NewShardedMap()
 		}},
 	}
 
 	// nolint:gocritic
-	failovers := append(dflt,
+	failovers = append(dflt,
 		failover{f: func() cache.ReadWriter {
 			return cache.NewSyncMap()
 		}},
 	)
 
 	// nolint:gocritic
-	all := append(failovers,
+	all = append(failovers,
 		backend{f: func() cache.ReadWriter {
 			return cache.NewShardedMap()
 		}},
@@ -38,7 +38,9 @@ func Benchmark_concurrent(b *testing.B) {
 		syncMapBaseline{},
 		shardedMapBaseline{},
 	)
+)
 
+func Benchmark_concurrent(b *testing.B) {
 	type testcase struct {
 		cardinality  int
 		numRoutines  int
