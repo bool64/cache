@@ -243,9 +243,9 @@ func (c *shardedMapOf[value]) deleteExpiredBefore(expirationBoundary time.Time) 
 		b.Unlock()
 	}
 
-	//if c.heapInUseOverflow() || c.countOverflow() {
-	//	c.evictOldest()
-	//}
+	if c.heapInUseOverflow() || c.countOverflow() {
+		c.evictOldest()
+	}
 }
 
 // Len returns number of elements in cache.
