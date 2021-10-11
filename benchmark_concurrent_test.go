@@ -19,14 +19,12 @@ var (
 		}},
 	}
 
-	// nolint:gocritic
 	failovers = append(dflt,
 		failover{f: func() cache.ReadWriter {
 			return cache.NewSyncMap()
 		}},
 	)
 
-	// nolint:gocritic
 	all = append(failovers,
 		backend{f: func() cache.ReadWriter {
 			return cache.NewShardedMap()
