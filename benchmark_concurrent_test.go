@@ -38,6 +38,19 @@ var (
 	)
 )
 
+//Benchmark_concurrent/c10000:g8:w0.10%:failover(*cache.ShardedMap)
+//Benchmark_concurrent/c10000:g8:w0.10%:failover(*cache.ShardedMap)-8                                   	29530222	        41.14 ns/op	         1.945 MB/inuse	         6.435 ms/preload	       4 B/op	       0 allocs/op
+//Benchmark_concurrent/c10000:g8:w0.10%:failover(*cache.ShardedMapOf[cache.smallCachedValue])
+//Benchmark_concurrent/c10000:g8:w0.10%:failover(*cache.ShardedMapOf[cache.smallCachedValue])-8         	22615887	        54.26 ns/op	         2.039 MB/inuse	         8.425 ms/preload	       4 B/op	       1 allocs/op
+//Benchmark_concurrent/c10000:g8:w1.00%:failover(*cache.ShardedMap)
+//Benchmark_concurrent/c10000:g8:w1.00%:failover(*cache.ShardedMap)-8                                   	17427632	        63.78 ns/op	         1.992 MB/inuse	         7.514 ms/preload	       7 B/op	       1 allocs/op
+//Benchmark_concurrent/c10000:g8:w1.00%:failover(*cache.ShardedMapOf[cache.smallCachedValue])
+//Benchmark_concurrent/c10000:g8:w1.00%:failover(*cache.ShardedMapOf[cache.smallCachedValue])-8         	22513929	        54.95 ns/op	         2.031 MB/inuse	         6.706 ms/preload	       7 B/op	       1 allocs/op
+//Benchmark_concurrent/c10000:g8:w10.00%:failover(*cache.ShardedMap)
+//Benchmark_concurrent/c10000:g8:w10.00%:failover(*cache.ShardedMap)-8                                  	11207137	       105.7 ns/op	         2.031 MB/inuse	         7.127 ms/preload	      38 B/op	       1 allocs/op
+//Benchmark_concurrent/c10000:g8:w10.00%:failover(*cache.ShardedMapOf[cache.smallCachedValue])
+//Benchmark_concurrent/c10000:g8:w10.00%:failover(*cache.ShardedMapOf[cache.smallCachedValue])-8        	 9461862	       113.4 ns/op	         2.023 MB/inuse	         6.522 ms/preload	      42 B/op	       2 allocs/op
+
 func Benchmark_concurrent(b *testing.B) {
 	type testcase struct {
 		cardinality  int

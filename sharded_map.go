@@ -243,7 +243,7 @@ func (c *shardedMap) deleteExpiredBefore(expirationBoundary time.Time) {
 		b.Unlock()
 	}
 
-	if c.heapInUseOverflow() || c.countOverflow() {
+	if heapInUseOverflow(c.config) || countOverflow(c.config, c.Len) {
 		c.evictOldest()
 	}
 }

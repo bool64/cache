@@ -5,9 +5,7 @@ package cache
 
 import (
 	"context"
-	"runtime"
 	"sort"
-	"time"
 )
 
 func (c *shardedMapOf[value]) evictOldest() {
@@ -16,14 +14,8 @@ func (c *shardedMapOf[value]) evictOldest() {
 		evictFraction = 0.1
 	}
 
-	type entry struct {
-		key      string
-		hash     uint64
-		expireAt time.Time
-	}
-
 	keysCnt := c.Len()
-	entries := make([]entry, 0, keysCnt)
+	entries := make([]evictEntry, 0, keysCnt)
 
 	// Collect all keys and expirations.
 	for i := range c.hashedBuckets {
@@ -31,7 +23,7 @@ func (c *shardedMapOf[value]) evictOldest() {
 
 		b.RLock()
 		for h, i := range b.data {
-			entries = append(entries, entry{hash: h, expireAt: i.E, key: string(i.K)})
+			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
 		}
 		b.RUnlock()
 	}
@@ -55,23 +47,4 @@ func (c *shardedMapOf[value]) evictOldest() {
 		delete(b.data, h)
 		b.Unlock()
 	}
-}
-
-func (c *shardedMapOf[value]) heapInUseOverflow() bool {
-	if c.config.HeapInUseSoftLimit == 0 {
-		return false
-	}
-
-	m := runtime.MemStats{}
-	runtime.ReadMemStats(&m)
-
-	return m.HeapInuse >= c.config.HeapInUseSoftLimit
-}
-
-func (c *shardedMapOf[value]) countOverflow() bool {
-	if c.config.CountSoftLimit == 0 {
-		return false
-	}
-
-	return c.Len() >= int(c.config.CountSoftLimit)
 }

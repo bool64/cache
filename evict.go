@@ -7,20 +7,28 @@ import (
 	"time"
 )
 
+type evictEntry struct {
+	hash     uint64
+	expireAt time.Time
+}
+
 func (c *shardedMap) evictOldest() {
 	evictFraction := c.config.EvictFraction
 	if evictFraction == 0 {
 		evictFraction = 0.1
 	}
 
-	type entry struct {
-		key      string
-		hash     uint64
-		expireAt time.Time
+	cnt := 0
+
+	for i := range c.hashedBuckets {
+		b := &c.hashedBuckets[i]
+
+		b.RLock()
+		cnt += len(b.data)
+		b.RUnlock()
 	}
 
-	keysCnt := c.Len()
-	entries := make([]entry, 0, keysCnt)
+	entries := make([]evictEntry, 0, cnt)
 
 	// Collect all keys and expirations.
 	for i := range c.hashedBuckets {
@@ -28,7 +36,7 @@ func (c *shardedMap) evictOldest() {
 
 		b.RLock()
 		for h, i := range b.data {
-			entries = append(entries, entry{hash: h, expireAt: i.E, key: string(i.K)})
+			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
 		}
 		b.RUnlock()
 	}
@@ -54,21 +62,21 @@ func (c *shardedMap) evictOldest() {
 	}
 }
 
-func (c *shardedMap) heapInUseOverflow() bool {
-	if c.config.HeapInUseSoftLimit == 0 {
+func heapInUseOverflow(c Config) bool {
+	if c.HeapInUseSoftLimit == 0 {
 		return false
 	}
 
 	m := runtime.MemStats{}
 	runtime.ReadMemStats(&m)
 
-	return m.HeapInuse >= c.config.HeapInUseSoftLimit
+	return m.HeapInuse >= c.HeapInUseSoftLimit
 }
 
-func (c *shardedMap) countOverflow() bool {
-	if c.config.CountSoftLimit == 0 {
+func countOverflow(c Config, length func() int) bool {
+	if c.CountSoftLimit == 0 {
 		return false
 	}
 
-	return c.Len() >= int(c.config.CountSoftLimit)
+	return length() >= int(c.CountSoftLimit)
 }
