@@ -33,7 +33,3 @@ jobs:
       - name: Test
         run: |
           GO=~/sdk/gotip/bin/go make test-unit
-      - name: Benchmark
-        run: |
-          export REF_NAME=new
-          GO=~/sdk/gotip/bin/go make bench
