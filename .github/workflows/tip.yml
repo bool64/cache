@@ -1,19 +1,21 @@
-name: tip
+name: gotip
 on:
   push:
     branches:
       - master
       - main
   pull_request:
-env:
-  GO111MODULE: "on"
-  RUN_BASE_COVERAGE: "on"  # Runs test for PR base in case base test coverage is missing.
 jobs:
-  test-bench:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Install Go tip
+        run: |
+          curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
+          ls -lah gotip.tar.gz
+          mkdir -p ~/sdk/gotip
+          tar -C ~/sdk/gotip -xzf gotip.tar.gz
+          ~/sdk/gotip/bin/go version
       - name: Go cache
         uses: actions/cache@v2
         with:
@@ -26,8 +28,12 @@ jobs:
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache
+      - name: Checkout code
+        uses: actions/checkout@v2
       - name: Test
-        uses: docker://ghcr.io/aleksi/golang-tip:master
-        with:
-          entrypoint: /bin/sh
-          args: -c "go version;make test-unit bench"
+        run: |
+          GO=~/sdk/gotip/bin/go make test-unit
+      - name: Benchmark
+        run: |
+          export REF_NAME=new
+          GO=~/sdk/gotip/bin/go make bench

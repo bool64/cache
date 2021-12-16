@@ -221,7 +221,7 @@ func (f *FailoverOf[value]) Get(
 					"key", key)
 			}
 
-			if !f.config.FailHard {
+			if !f.config.FailHard && !errors.Is(err, ErrNotFound) {
 				return val, nil
 			}
 		}
