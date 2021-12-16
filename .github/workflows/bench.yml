@@ -69,7 +69,7 @@ jobs:
         run: |
           export REF_NAME=master
           cd __base
-          make | grep bench-run && (BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench-run bench-stat && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
+          make | grep bench-run && (BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench-run && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
       - name: Benchmark
         id: bench
         run: |
