@@ -50,7 +50,7 @@ jobs:
           key: ${{ runner.os }}-benchstat
       - name: Ensure benchstat
         run: |
-          make bench-stat-cli
+          GO=~/sdk/gotip/bin/go make bench-stat-cli
           ls -la ~/go/bin/
           echo $PATH
           ~/go/bin/benchstat -help
