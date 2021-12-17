@@ -48,6 +48,12 @@ jobs:
         with:
           path: ~/go/bin/benchstat
           key: ${{ runner.os }}-benchstat
+      - name: Ensure benchstat
+        run: |
+          make bench-stat-cli
+          ls -la ~/go/bin/
+          echo $PATH
+          ~/go/bin/benchstat -help
       - name: Restore base benchmark result
         if: env.CACHE_BENCHMARK == 'on'
         id: benchmark-base
