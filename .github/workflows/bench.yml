@@ -53,7 +53,7 @@ jobs:
           GO=~/sdk/gotip/bin/go make bench-stat-cli
           ls -la ~/go/bin/
           echo $PATH
-          ~/go/bin/benchstat -help
+          ~/go/bin/benchstat -help || :
       - name: Restore base benchmark result
         if: env.CACHE_BENCHMARK == 'on'
         id: benchmark-base
@@ -80,6 +80,7 @@ jobs:
         id: bench
         run: |
           export REF_NAME=new
+          export PATH=$PATH:$HOME/go/bin
           BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench
           OUTPUT=$(make bench-stat-diff)
           echo "${OUTPUT}"
