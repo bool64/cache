@@ -1,34 +1,21 @@
+//go:build go1.18
+// +build go1.18
+
 package cache
 
 import (
 	"context"
-	"runtime"
 	"sort"
-	"time"
 )
 
-type evictEntry struct {
-	hash     uint64
-	expireAt time.Time
-}
-
-func (c *shardedMap) evictOldest() {
+func (c *shardedMapOf[value]) evictOldest() {
 	evictFraction := c.config.EvictFraction
 	if evictFraction == 0 {
 		evictFraction = 0.1
 	}
 
-	cnt := 0
-
-	for i := range c.hashedBuckets {
-		b := &c.hashedBuckets[i]
-
-		b.RLock()
-		cnt += len(b.data)
-		b.RUnlock()
-	}
-
-	entries := make([]evictEntry, 0, cnt)
+	keysCnt := c.Len()
+	entries := make([]evictEntry, 0, keysCnt)
 
 	// Collect all keys and expirations.
 	for i := range c.hashedBuckets {
@@ -60,23 +47,4 @@ func (c *shardedMap) evictOldest() {
 		delete(b.data, h)
 		b.Unlock()
 	}
-}
-
-func heapInUseOverflow(c Config) bool {
-	if c.HeapInUseSoftLimit == 0 {
-		return false
-	}
-
-	m := runtime.MemStats{}
-	runtime.ReadMemStats(&m)
-
-	return m.HeapInuse >= c.HeapInUseSoftLimit
-}
-
-func countOverflow(c Config, length func() int) bool {
-	if c.CountSoftLimit == 0 {
-		return false
-	}
-
-	return length() >= int(c.CountSoftLimit)
 }

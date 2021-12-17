@@ -1,3 +1,6 @@
+//go:build go1.18
+// +build go1.18
+
 package cache
 
 import (
@@ -8,40 +11,32 @@ import (
 	"io"
 	"math/rand"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
 )
 
 var (
-	_ ReadWriter = &shardedMap{}
-	_ Deleter    = &shardedMap{}
+	_ ReadWriterOf[interface{}] = &shardedMapOf[interface{}]{}
+	_ Deleter                   = &shardedMapOf[interface{}]{}
 )
 
-const shards = 128
-
-type hashedBucket struct {
-	sync.RWMutex
-	data map[uint64]*entry
+// ShardedMapOf is an in-memory cache backend. Please use NewShardedMapOf to create it.
+type ShardedMapOf[value any] struct {
+	*shardedMapOf[value]
 }
 
-// ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
-type ShardedMap struct {
-	*shardedMap
-}
-
-type shardedMap struct {
+type shardedMapOf[value any] struct {
 	hashedBuckets [shards]hashedBucket
 
 	*trait
 }
 
-// NewShardedMap creates an instance of in-memory cache with optional configuration.
-func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
-	c := &shardedMap{}
-	C := &ShardedMap{
-		shardedMap: c,
+// NewShardedMapOf creates an instance of in-memory cache with optional configuration.
+func NewShardedMapOf[value any](options ...func(cfg *Config)) *ShardedMapOf[value] {
+	c := &shardedMapOf[value]{}
+	C := &ShardedMapOf[value]{
+		shardedMapOf: c,
 	}
 
 	for i := 0; i < shards; i++ {
@@ -55,7 +50,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 
 	c.trait = newTrait(c, cfg)
 
-	runtime.SetFinalizer(C, func(m *ShardedMap) {
+	runtime.SetFinalizer(C, func(m *ShardedMapOf[value]) {
 		close(m.closed)
 	})
 
@@ -65,7 +60,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 // Load returns the value stored in the map for a key, or nil if no
 // value is present.
 // The ok result indicates whether value was found in the map.
-func (c *shardedMap) Load(key []byte) (interface{}, bool) {
+func (c *shardedMapOf[value]) Load(key []byte) (val value, loaded bool) {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
@@ -74,14 +69,14 @@ func (c *shardedMap) Load(key []byte) (interface{}, bool) {
 	cacheEntry, found := b.data[h]
 
 	if !found || !bytes.Equal(cacheEntry.K, key) {
-		return nil, false
+		return val, false
 	}
 
-	return cacheEntry.V, true
+	return cacheEntry.V.(value), true
 }
 
 // Store sets the value for a key.
-func (c *shardedMap) Store(key []byte, val interface{}) {
+func (c *shardedMapOf[value]) Store(key []byte, val value) {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
@@ -95,9 +90,9 @@ func (c *shardedMap) Store(key []byte, val interface{}) {
 }
 
 // Read gets value.
-func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) {
+func (c *shardedMapOf[value]) Read(ctx context.Context, key []byte) (val value, _ error) {
 	if SkipRead(ctx) {
-		return nil, ErrNotFound
+		return val, ErrNotFound
 	}
 
 	h := xxhash.Sum64(key)
@@ -111,11 +106,16 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 		found = false
 	}
 
-	return c.prepareRead(ctx, cacheEntry, found)
+	v, err := c.prepareRead(ctx, cacheEntry, found)
+	if err != nil {
+		return val, err
+	}
+
+	return v.(value), nil
 }
 
 // Write sets value by the key.
-func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
+func (c *shardedMapOf[value]) Write(ctx context.Context, k []byte, v value) error {
 	h := xxhash.Sum64(k)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
@@ -156,7 +156,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 // Delete removes value by the key.
 //
 // It fails with ErrNotFound if key does not exist.
-func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
+func (c *shardedMapOf[value]) Delete(ctx context.Context, key []byte) error {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 
@@ -181,7 +181,7 @@ func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
 }
 
 // ExpireAll marks all entries as expired, they can still serve stale cache.
-func (c *shardedMap) ExpireAll(ctx context.Context) {
+func (c *shardedMapOf[value]) ExpireAll(ctx context.Context) {
 	now := time.Now()
 	cnt := 0
 
@@ -206,7 +206,7 @@ func (c *shardedMap) ExpireAll(ctx context.Context) {
 }
 
 // DeleteAll erases all entries.
-func (c *shardedMap) DeleteAll(ctx context.Context) {
+func (c *shardedMapOf[value]) DeleteAll(ctx context.Context) {
 	now := time.Now()
 	cnt := 0
 
@@ -230,7 +230,7 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 	}
 }
 
-func (c *shardedMap) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *shardedMapOf[value]) deleteExpiredBefore(expirationBoundary time.Time) {
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
@@ -249,7 +249,7 @@ func (c *shardedMap) deleteExpiredBefore(expirationBoundary time.Time) {
 }
 
 // Len returns number of elements in cache.
-func (c *shardedMap) Len() int {
+func (c *shardedMapOf[value]) Len() int {
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -264,7 +264,7 @@ func (c *shardedMap) Len() int {
 }
 
 // Walk walks cached entries.
-func (c *shardedMap) Walk(walkFn func(e Entry) error) (int, error) {
+func (c *shardedMapOf[value]) Walk(walkFn func(e Entry) error) (int, error) {
 	n := 0
 
 	for i := range c.hashedBuckets {
@@ -292,7 +292,7 @@ func (c *shardedMap) Walk(walkFn func(e Entry) error) (int, error) {
 //
 // Dump uses encoding/gob to serialize cache entries, therefore it is necessary to
 // register cached types in advance with cache.GobRegister.
-func (c *ShardedMap) Dump(w io.Writer) (int, error) {
+func (c *ShardedMapOf[value]) Dump(w io.Writer) (int, error) {
 	encoder := gob.NewEncoder(w)
 
 	return c.Walk(func(e Entry) error {
@@ -304,7 +304,7 @@ func (c *ShardedMap) Dump(w io.Writer) (int, error) {
 //
 // Restore uses encoding/gob to unserialize cache entries, therefore it is necessary to
 // register cached types in advance with cache.GobRegister.
-func (c *ShardedMap) Restore(r io.Reader) (int, error) {
+func (c *ShardedMapOf[value]) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
 		n       = 0

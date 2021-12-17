@@ -18,15 +18,15 @@ env:
   RUN_BASE_BENCHMARK: "on"  # Runs benchmark for PR base in case benchmark result is missing.
 jobs:
   bench:
-    strategy:
-      matrix:
-        go-version: [ 1.17.x ]
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: ${{ matrix.go-version }}
+      - name: Install Go tip
+        run: |
+          curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
+          ls -lah gotip.tar.gz
+          mkdir -p ~/sdk/gotip
+          tar -C ~/sdk/gotip -xzf gotip.tar.gz
+          ~/sdk/gotip/bin/go version
       - name: Checkout code
         uses: actions/checkout@v2
         with:
@@ -48,6 +48,12 @@ jobs:
         with:
           path: ~/go/bin/benchstat
           key: ${{ runner.os }}-benchstat
+      - name: Ensure benchstat
+        run: |
+          GO=~/sdk/gotip/bin/go make bench-stat-cli
+          ls -la ~/go/bin/
+          echo $PATH
+          ~/go/bin/benchstat -help || :
       - name: Restore base benchmark result
         if: env.CACHE_BENCHMARK == 'on'
         id: benchmark-base
@@ -69,23 +75,23 @@ jobs:
         run: |
           export REF_NAME=master
           cd __base
-          make | grep bench-run && (BENCH_COUNT=5 make bench-run bench-stat && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
+          make | grep bench-run && (BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench-run && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
       - name: Benchmark
         id: bench
         run: |
           export REF_NAME=new
-          BENCH_COUNT=5 make bench
+          export PATH=$PATH:$HOME/go/bin
+          BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench
           OUTPUT=$(make bench-stat-diff)
-          OUTPUT="${OUTPUT//'%'/'%25'}"
-          OUTPUT="${OUTPUT//$'\n'/'%0A'}"
-          OUTPUT="${OUTPUT//$'\r'/'%0D'}"
+          echo "${OUTPUT}"
+          OUTPUT="${OUTPUT//$'\n'/%0A}"
           echo "::set-output name=diff::$OUTPUT"
           OUTPUT=$(make bench-stat)
-          OUTPUT="${OUTPUT//'%'/'%25'}"
-          OUTPUT="${OUTPUT//$'\n'/'%0A'}"
-          OUTPUT="${OUTPUT//$'\r'/'%0D'}"
+          echo "${OUTPUT}"
+          OUTPUT="${OUTPUT//$'\n'/%0A}"
           echo "::set-output name=result::$OUTPUT"
       - name: Comment Benchmark Result
+        continue-on-error: true
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

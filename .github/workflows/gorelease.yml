@@ -28,17 +28,16 @@ jobs:
         run: |
           test -e ~/go/bin/gorelease || go install golang.org/x/exp/cmd/gorelease@latest
           OUTPUT=$(gorelease || exit 0)
-          OUTPUT="${OUTPUT//'%'/'%25'}"
-          OUTPUT="${OUTPUT//$'\n'/'%0A'}"
-          OUTPUT="${OUTPUT//$'\r'/'%0D'}"
+          echo "${OUTPUT}"
+          OUTPUT="${OUTPUT//$'\n'/%0A}"
           echo "::set-output name=report::$OUTPUT"
       - name: Comment Report
+        continue-on-error: true
         uses: marocchino/sticky-pull-request-comment@v2
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           header: gorelease
           message: |
-            ### API Changes
+            ### Go API Changes
 
             <pre>
             ${{ steps.gorelease.outputs.report }}
