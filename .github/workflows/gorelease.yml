@@ -8,14 +8,11 @@ jobs:
   gorelease:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go tip
-        run: |
-          curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
-          ls -lah gotip.tar.gz
-          mkdir -p ~/sdk/gotip
-          tar -C ~/sdk/gotip -xzf gotip.tar.gz
-          ~/sdk/gotip/bin/go version
-          echo "PATH=$HOME/go/bin:$HOME/sdk/gotip/bin/:$PATH" >> $GITHUB_ENV
+      - name: Install Go stable
+        if: matrix.go-version != 'tip'
+        uses: actions/setup-go@master
+        with:
+          go-version: 1.17.x
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Gorelease cache
@@ -23,7 +20,7 @@ jobs:
         with:
           path: |
             ~/go/bin/gorelease
-          key: ${{ runner.os }}-gorelease-tip
+          key: ${{ runner.os }}-gorelease-1.17
       - name: Gorelease
         id: gorelease
         run: |
