@@ -27,6 +27,7 @@ jobs:
           mkdir -p ~/sdk/gotip
           tar -C ~/sdk/gotip -xzf gotip.tar.gz
           ~/sdk/gotip/bin/go version
+          echo "PATH=$HOME/go/bin:$HOME/sdk/gotip/bin/:$PATH" >> $GITHUB_ENV
       - name: Checkout code
         uses: actions/checkout@v2
         with:
@@ -48,12 +49,6 @@ jobs:
         with:
           path: ~/go/bin/benchstat
           key: ${{ runner.os }}-benchstat
-      - name: Ensure benchstat
-        run: |
-          GO=~/sdk/gotip/bin/go make bench-stat-cli
-          ls -la ~/go/bin/
-          echo $PATH
-          ~/go/bin/benchstat -help || :
       - name: Restore base benchmark result
         if: env.CACHE_BENCHMARK == 'on'
         id: benchmark-base
@@ -75,13 +70,12 @@ jobs:
         run: |
           export REF_NAME=master
           cd __base
-          make | grep bench-run && (BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench-run && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
+          make | grep bench-run && (BENCH_COUNT=5 make bench-run && cp bench-master.txt ../bench-master.txt) || echo "No benchmarks in base"
       - name: Benchmark
         id: bench
         run: |
           export REF_NAME=new
-          export PATH=$PATH:$HOME/go/bin
-          BENCH_COUNT=5 GO=~/sdk/gotip/bin/go make bench
+          BENCH_COUNT=5 make bench
           OUTPUT=$(make bench-stat-diff)
           echo "${OUTPUT}"
           OUTPUT="${OUTPUT//$'\n'/%0A}"
