@@ -23,7 +23,7 @@ jobs:
         with:
           path: |
             ~/go/bin/gorelease
-          key: ${{ runner.os }}-gorelease
+          key: ${{ runner.os }}-gorelease-tip
       - name: Gorelease
         id: gorelease
         run: |
