@@ -34,7 +34,7 @@ Additionally, there are few other aspects of behavior to optimize performance.
 
 * Builder function is locked per key, so if the key needs a fresh value the builder function is only called once. All
   the other `Get` calls for the same key are blocked until the value is available. This helps to avoid
-  [thundering herd problem](https://en.wikipedia.org/wiki/Thundering_herd_problem) when popular value is missing or
+  [cache stampede problem](https://en.wikipedia.org/wiki/Cache_stampede) when popular value is missing or
   expired.
 * If expired (stale) value is available, the value is refreshed with a short TTL (configured as `UpdateTTL`) before the
   builder function is invoked. This immediately unblocks readers with a stale value and improves tail latency.
