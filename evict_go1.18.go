@@ -8,7 +8,7 @@ import (
 	"sort"
 )
 
-func (c *shardedMapOf[value]) evictOldest() {
+func (c *shardedMapOf[V]) evictOldest() {
 	evictFraction := c.config.EvictFraction
 	if evictFraction == 0 {
 		evictFraction = 0.1

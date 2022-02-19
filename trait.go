@@ -8,6 +8,58 @@ import (
 	"github.com/bool64/stats"
 )
 
+func (c Config) reportItemsCount(b backend, closed chan struct{}) {
+	for {
+		interval := c.ItemsCountReportInterval
+
+		select {
+		case <-time.After(interval):
+			count := b.Len()
+
+			if c.Logger != nil {
+				c.Logger.Debug(context.Background(), "cache items count",
+					"name", c.Name,
+					"count", b.Len(),
+				)
+			}
+
+			if c.Stats != nil {
+				c.Stats.Set(context.Background(), MetricItems, float64(count), "name", c.Name)
+			}
+		case <-closed:
+			if c.Logger != nil {
+				c.Logger.Debug(context.Background(), "closing cache items counter goroutine",
+					"name", c.Name)
+			}
+
+			if c.Stats != nil {
+				c.Stats.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.Name)
+			}
+
+			return
+		}
+	}
+}
+
+func (c Config) janitor(b backend, closed chan struct{}) {
+	for {
+		interval := c.DeleteExpiredJobInterval
+
+		select {
+		case <-time.After(interval):
+			expirationBoundary := time.Now().Add(-c.DeleteExpiredAfter)
+			b.deleteExpiredBefore(expirationBoundary)
+		case <-closed:
+			if c.Logger != nil {
+				c.Logger.Debug(context.Background(), "closing cache janitor",
+					"name", c.Name)
+			}
+
+			return
+		}
+	}
+}
+
 type trait struct {
 	closed chan struct{}
 
@@ -49,16 +101,16 @@ func newTrait(b backend, config Config) *trait {
 		closed: make(chan struct{}),
 	}
 
-	if t.stat != nil {
-		go t.reportItemsCount(b)
+	if config.Stats != nil {
+		go config.reportItemsCount(b, t.closed)
 	}
 
-	go t.janitor(b)
+	go config.janitor(b, t.closed)
 
 	return t
 }
 
-func (c *trait) prepareRead(ctx context.Context, ce interface{}, found bool) (interface{}, error) {
+func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
 	if !found {
 		if c.log != nil {
 			c.log.Debug(ctx, "cache miss", "name", c.config.Name)
@@ -70,8 +122,6 @@ func (c *trait) prepareRead(ctx context.Context, ce interface{}, found bool) (in
 
 		return nil, ErrNotFound
 	}
-
-	cacheEntry := ce.(*entry) // nolint // Panic on type assertion failure is fine here.
 
 	if cacheEntry.E.Before(time.Now()) {
 		if c.log != nil {
@@ -97,58 +147,6 @@ func (c *trait) prepareRead(ctx context.Context, ce interface{}, found bool) (in
 	}
 
 	return cacheEntry.V, nil
-}
-
-func (c *trait) reportItemsCount(b backend) {
-	for {
-		interval := c.config.ItemsCountReportInterval
-
-		select {
-		case <-time.After(interval):
-			count := b.Len()
-
-			if c.log != nil {
-				c.log.Debug(context.Background(), "cache items count",
-					"name", c.config.Name,
-					"count", b.Len(),
-				)
-			}
-
-			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(count), "name", c.config.Name)
-			}
-		case <-c.closed:
-			if c.log != nil {
-				c.log.Debug(context.Background(), "closing cache items counter goroutine",
-					"name", c.config.Name)
-			}
-
-			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.config.Name)
-			}
-
-			return
-		}
-	}
-}
-
-func (c *trait) janitor(b backend) {
-	for {
-		interval := c.config.DeleteExpiredJobInterval
-
-		select {
-		case <-time.After(interval):
-			expirationBoundary := time.Now().Add(-c.config.DeleteExpiredAfter)
-			b.deleteExpiredBefore(expirationBoundary)
-		case <-c.closed:
-			if c.log != nil {
-				c.log.Debug(context.Background(), "closing cache janitor",
-					"name", c.config.Name)
-			}
-
-			return
-		}
-	}
 }
 
 // Config controls cache instance.

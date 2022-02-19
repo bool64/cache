@@ -11,36 +11,42 @@ import (
 	"io"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
 )
 
 var (
-	_ ReadWriterOf[interface{}] = &shardedMapOf[interface{}]{}
-	_ Deleter                   = &shardedMapOf[interface{}]{}
+	_ ReadWriterOf[any] = &shardedMapOf[any]{}
+	_ Deleter           = &shardedMapOf[any]{}
 )
 
 // ShardedMapOf is an in-memory cache backend. Please use NewShardedMapOf to create it.
-type ShardedMapOf[value any] struct {
-	*shardedMapOf[value]
+type ShardedMapOf[V any] struct {
+	*shardedMapOf[V]
 }
 
-type shardedMapOf[value any] struct {
-	hashedBuckets [shards]hashedBucket
+type hashedBucketOf[V any] struct {
+	sync.RWMutex
+	data map[uint64]*entryOf[V]
+}
 
-	*trait
+type shardedMapOf[V any] struct {
+	hashedBuckets [shards]hashedBucketOf[V]
+
+	*traitOf[V]
 }
 
 // NewShardedMapOf creates an instance of in-memory cache with optional configuration.
-func NewShardedMapOf[value any](options ...func(cfg *Config)) *ShardedMapOf[value] {
-	c := &shardedMapOf[value]{}
-	C := &ShardedMapOf[value]{
+func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
+	c := &shardedMapOf[V]{}
+	C := &ShardedMapOf[V]{
 		shardedMapOf: c,
 	}
 
 	for i := 0; i < shards; i++ {
-		c.hashedBuckets[i].data = make(map[uint64]*entry)
+		c.hashedBuckets[i].data = make(map[uint64]*entryOf[V])
 	}
 
 	cfg := Config{}
@@ -48,9 +54,9 @@ func NewShardedMapOf[value any](options ...func(cfg *Config)) *ShardedMapOf[valu
 		option(&cfg)
 	}
 
-	c.trait = newTrait(c, cfg)
+	c.traitOf = newTraitOf[V](c, cfg)
 
-	runtime.SetFinalizer(C, func(m *ShardedMapOf[value]) {
+	runtime.SetFinalizer(C, func(m *ShardedMapOf[V]) {
 		close(m.closed)
 	})
 
@@ -60,7 +66,7 @@ func NewShardedMapOf[value any](options ...func(cfg *Config)) *ShardedMapOf[valu
 // Load returns the value stored in the map for a key, or nil if no
 // value is present.
 // The ok result indicates whether value was found in the map.
-func (c *shardedMapOf[value]) Load(key []byte) (val value, loaded bool) {
+func (c *shardedMapOf[V]) Load(key []byte) (val V, loaded bool) {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
@@ -72,11 +78,11 @@ func (c *shardedMapOf[value]) Load(key []byte) (val value, loaded bool) {
 		return val, false
 	}
 
-	return cacheEntry.V.(value), true
+	return cacheEntry.V, true
 }
 
 // Store sets the value for a key.
-func (c *shardedMapOf[value]) Store(key []byte, val value) {
+func (c *shardedMapOf[V]) Store(key []byte, val V) {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
@@ -86,11 +92,11 @@ func (c *shardedMapOf[value]) Store(key []byte, val value) {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	b.data[h] = &entry{V: val, K: k}
+	b.data[h] = &entryOf[V]{V: val, K: k}
 }
 
 // Read gets value.
-func (c *shardedMapOf[value]) Read(ctx context.Context, key []byte) (val value, _ error) {
+func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error) {
 	if SkipRead(ctx) {
 		return val, ErrNotFound
 	}
@@ -111,11 +117,11 @@ func (c *shardedMapOf[value]) Read(ctx context.Context, key []byte) (val value, 
 		return val, err
 	}
 
-	return v.(value), nil
+	return v, nil
 }
 
 // Write sets value by the key.
-func (c *shardedMapOf[value]) Write(ctx context.Context, k []byte, v value) error {
+func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 	h := xxhash.Sum64(k)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
@@ -135,7 +141,7 @@ func (c *shardedMapOf[value]) Write(ctx context.Context, k []byte, v value) erro
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &entry{V: v, K: key, E: time.Now().Add(ttl)}
+	b.data[h] = &entryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
 
 	if c.log != nil {
 		c.log.Debug(ctx, "wrote to cache",
@@ -156,7 +162,7 @@ func (c *shardedMapOf[value]) Write(ctx context.Context, k []byte, v value) erro
 // Delete removes value by the key.
 //
 // It fails with ErrNotFound if key does not exist.
-func (c *shardedMapOf[value]) Delete(ctx context.Context, key []byte) error {
+func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 	h := xxhash.Sum64(key)
 	b := &c.hashedBuckets[h%shards]
 
@@ -181,7 +187,7 @@ func (c *shardedMapOf[value]) Delete(ctx context.Context, key []byte) error {
 }
 
 // ExpireAll marks all entries as expired, they can still serve stale cache.
-func (c *shardedMapOf[value]) ExpireAll(ctx context.Context) {
+func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
 	now := time.Now()
 	cnt := 0
 
@@ -206,7 +212,7 @@ func (c *shardedMapOf[value]) ExpireAll(ctx context.Context) {
 }
 
 // DeleteAll erases all entries.
-func (c *shardedMapOf[value]) DeleteAll(ctx context.Context) {
+func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 	now := time.Now()
 	cnt := 0
 
@@ -230,7 +236,7 @@ func (c *shardedMapOf[value]) DeleteAll(ctx context.Context) {
 	}
 }
 
-func (c *shardedMapOf[value]) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *shardedMapOf[V]) deleteExpiredBefore(expirationBoundary time.Time) {
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
@@ -249,7 +255,7 @@ func (c *shardedMapOf[value]) deleteExpiredBefore(expirationBoundary time.Time) 
 }
 
 // Len returns number of elements in cache.
-func (c *shardedMapOf[value]) Len() int {
+func (c *shardedMapOf[V]) Len() int {
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -264,7 +270,7 @@ func (c *shardedMapOf[value]) Len() int {
 }
 
 // Walk walks cached entries.
-func (c *shardedMapOf[value]) Walk(walkFn func(e Entry) error) (int, error) {
+func (c *shardedMapOf[V]) Walk(walkFn func(e EntryOf[V]) error) (int, error) {
 	n := 0
 
 	for i := range c.hashedBuckets {
@@ -292,10 +298,10 @@ func (c *shardedMapOf[value]) Walk(walkFn func(e Entry) error) (int, error) {
 //
 // Dump uses encoding/gob to serialize cache entries, therefore it is necessary to
 // register cached types in advance with cache.GobRegister.
-func (c *ShardedMapOf[value]) Dump(w io.Writer) (int, error) {
+func (c *ShardedMapOf[V]) Dump(w io.Writer) (int, error) {
 	encoder := gob.NewEncoder(w)
 
-	return c.Walk(func(e Entry) error {
+	return c.Walk(func(e EntryOf[V]) error {
 		return encoder.Encode(e)
 	})
 }
@@ -304,14 +310,14 @@ func (c *ShardedMapOf[value]) Dump(w io.Writer) (int, error) {
 //
 // Restore uses encoding/gob to unserialize cache entries, therefore it is necessary to
 // register cached types in advance with cache.GobRegister.
-func (c *ShardedMapOf[value]) Restore(r io.Reader) (int, error) {
+func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
 		n       = 0
 	)
 
 	for {
-		var e entry
+		var e entryOf[V]
 
 		err := decoder.Decode(&e)
 		if err != nil {

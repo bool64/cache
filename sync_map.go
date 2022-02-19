@@ -55,9 +55,11 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 		return nil, ErrNotFound
 	}
 
-	cacheEntry, found := c.data.Load(string(key))
+	if cacheEntry, found := c.data.Load(string(key)); found {
+		return c.prepareRead(ctx, cacheEntry.(*entry), true)
+	}
 
-	return c.prepareRead(ctx, cacheEntry, found)
+	return c.prepareRead(ctx, nil, false)
 }
 
 // Write sets value by the key.
