@@ -15,12 +15,12 @@ import (
 )
 
 // FailoverConfigOf is optional configuration for NewFailoverOf.
-type FailoverConfigOf[value any] struct {
+type FailoverConfigOf[V any] struct {
 	// Name is added to logs and stats.
 	Name string
 
 	// Backend is a cache instance, ShardedMap created by default.
-	Backend ReadWriterOf[value]
+	Backend ReadWriterOf[V]
 
 	// BackendConfig is a configuration for ShardedMap cache instance if Backend is not provided.
 	BackendConfig Config
@@ -58,21 +58,21 @@ type FailoverConfigOf[value any] struct {
 }
 
 // Use is a functional option for NewFailover to apply configuration.
-func (fc FailoverConfigOf[value]) Use(cfg *FailoverConfigOf[value]) {
+func (fc FailoverConfigOf[V]) Use(cfg *FailoverConfigOf[V]) {
 	*cfg = fc
 }
 
 // FailoverOf is a cache frontend to manage cache updates in a non-conflicting and performant way.
 //
 // Please use NewFailoverOf to create instance.
-type FailoverOf[value any] struct {
+type FailoverOf[V any] struct {
 	// Errors caches errors of failed updates.
-	Errors *ShardedMap
+	Errors *ShardedMapOf[error]
 
-	backend  ReadWriterOf[value]
-	lock     sync.Mutex     // Securing keyLocks
-	keyLocks map[string]*kl // Preventing update concurrency per key
-	config   FailoverConfigOf[value]
+	backend  ReadWriterOf[V]
+	lock     sync.Mutex          // Securing keyLocks
+	keyLocks map[string]*klOf[V] // Preventing update concurrency per key
+	config   FailoverConfigOf[V]
 	log      ctxd.Logger
 	stat     stats.Tracker
 }
@@ -81,8 +81,8 @@ type FailoverOf[value any] struct {
 //
 // Build is locked per key to avoid concurrent updates, new value is served .
 // Stale value is served during non-concurrent update (up to FailoverConfigOf.UpdateTTL long).
-func NewFailoverOf[value any](options ...func(cfg *FailoverConfigOf[value])) *FailoverOf[value] {
-	cfg := FailoverConfigOf[value]{}
+func NewFailoverOf[V any](options ...func(cfg *FailoverConfigOf[V])) *FailoverOf[V] {
+	cfg := FailoverConfigOf[V]{}
 	for _, option := range options {
 		option(&cfg)
 	}
@@ -95,7 +95,7 @@ func NewFailoverOf[value any](options ...func(cfg *FailoverConfigOf[value])) *Fa
 		cfg.FailedUpdateTTL = 20 * time.Second
 	}
 
-	f := &FailoverOf[value]{}
+	f := &FailoverOf[V]{}
 	f.config = cfg
 	f.log = cfg.Logger
 	f.stat = cfg.Stats
@@ -105,11 +105,11 @@ func NewFailoverOf[value any](options ...func(cfg *FailoverConfigOf[value])) *Fa
 		cfg.BackendConfig.Name = cfg.Name
 		cfg.BackendConfig.Logger = cfg.Logger
 		cfg.BackendConfig.Stats = cfg.Stats
-		f.backend = NewShardedMapOf[value](cfg.BackendConfig.Use)
+		f.backend = NewShardedMapOf[V](cfg.BackendConfig.Use)
 	}
 
 	if cfg.FailedUpdateTTL > -1 {
-		f.Errors = NewShardedMap(Config{
+		f.Errors = NewShardedMapOf[error](Config{
 			Name:       "err_" + cfg.Name,
 			Logger:     cfg.Logger,
 			Stats:      cfg.Stats,
@@ -121,19 +121,19 @@ func NewFailoverOf[value any](options ...func(cfg *FailoverConfigOf[value])) *Fa
 		}.Use)
 	}
 
-	f.keyLocks = make(map[string]*kl)
+	f.keyLocks = make(map[string]*klOf[V])
 
 	return f
 }
 
 // Get returns value from cache or from build function.
-func (f *FailoverOf[value]) Get(
+func (f *FailoverOf[V]) Get(
 	ctx context.Context,
 	key []byte,
-	buildFunc func(ctx context.Context) (value, error),
-) (value, error) {
+	buildFunc func(ctx context.Context) (V, error),
+) (V, error) {
 	var (
-		val value
+		val V
 		err error
 	)
 
@@ -147,13 +147,13 @@ func (f *FailoverOf[value]) Get(
 
 	// Locking key for update or finding active lock.
 	f.lock.Lock()
-	var keyLock *kl
+	var keyLock *klOf[V]
 
 	alreadyLocked := false
 
 	keyLock, alreadyLocked = f.keyLocks[string(key)]
 	if !alreadyLocked {
-		keyLock = &kl{lock: make(chan struct{})}
+		keyLock = &klOf[V]{lock: make(chan struct{})}
 		f.keyLocks[string(key)] = keyLock
 	}
 	f.lock.Unlock()
@@ -226,7 +226,7 @@ func (f *FailoverOf[value]) Get(
 			}
 		}
 
-		return keyLock.val.(value), keyLock.err
+		return keyLock.val, keyLock.err
 	}
 
 	// Disabling defer to unlock in background.
@@ -252,19 +252,25 @@ func (f *FailoverOf[value]) Get(
 	return val, nil
 }
 
-func (f *FailoverOf[value]) freshEnough(err error) (val value, _ bool) {
-	var errExpired ErrWithExpiredItem
+type klOf[V any] struct {
+	val  V
+	err  error
+	lock chan struct{}
+}
+
+func (f *FailoverOf[V]) freshEnough(err error) (val V, _ bool) {
+	var errExpired ErrWithExpiredItemOf[V]
 
 	if errors.As(err, &errExpired) {
 		if f.config.MaxStaleness == 0 || time.Since(errExpired.ExpiredAt()) < f.config.MaxStaleness {
-			return errExpired.Value().(value), true
+			return errExpired.Value(), true
 		}
 	}
 
 	return val, false
 }
 
-func (f *FailoverOf[value]) waitForValue(ctx context.Context, key []byte, keyLock *kl) (value, error) {
+func (f *FailoverOf[V]) waitForValue(ctx context.Context, key []byte, keyLock *klOf[V]) (V, error) {
 	if f.log != nil {
 		f.log.Debug(ctx, "waiting for cache value", "name", f.config.Name, "key", key)
 	}
@@ -272,10 +278,10 @@ func (f *FailoverOf[value]) waitForValue(ctx context.Context, key []byte, keyLoc
 	// Waiting for value built by keyLock owner.
 	<-keyLock.lock
 
-	return keyLock.val.(value), keyLock.err
+	return keyLock.val, keyLock.err
 }
 
-func (f *FailoverOf[value]) refreshStale(ctx context.Context, key []byte, val value) error {
+func (f *FailoverOf[V]) refreshStale(ctx context.Context, key []byte, val V) error {
 	if f.log != nil {
 		f.log.Debug(ctx, "refreshing expired value",
 			"name", f.config.Name,
@@ -295,12 +301,12 @@ func (f *FailoverOf[value]) refreshStale(ctx context.Context, key []byte, val va
 	return nil
 }
 
-func (f *FailoverOf[value]) doBuild(
+func (f *FailoverOf[V]) doBuild(
 	ctx context.Context,
 	key []byte,
-	val value,
-	buildFunc func(ctx context.Context) (value, error),
-) (interface{}, error) {
+	val V,
+	buildFunc func(ctx context.Context) (V, error),
+) (v V, _ error) {
 	if f.stat != nil {
 		defer func() {
 			f.stat.Add(ctx, MetricBuild, 1, "name", f.config.Name)
@@ -328,12 +334,12 @@ func (f *FailoverOf[value]) doBuild(
 			}
 		}
 
-		return val, err
+		return v, err
 	}
 
 	writeErr := f.backend.Write(ctx, key, uVal)
 	if writeErr != nil {
-		return nil, writeErr
+		return v, writeErr
 	}
 
 	if f.config.ObserveMutability && err == nil {
@@ -343,7 +349,7 @@ func (f *FailoverOf[value]) doBuild(
 	return uVal, err
 }
 
-func (f *FailoverOf[value]) ctxSync(ctx context.Context, err error) (context.Context, bool) {
+func (f *FailoverOf[V]) ctxSync(ctx context.Context, err error) (context.Context, bool) {
 	syncUpdate := f.config.SyncUpdate || err != nil
 	if syncUpdate {
 		return ctx, true
@@ -353,18 +359,18 @@ func (f *FailoverOf[value]) ctxSync(ctx context.Context, err error) (context.Con
 	return detachedContext{ctx}, false
 }
 
-func (f *FailoverOf[value]) recentlyFailed(ctx context.Context, key []byte) error {
+func (f *FailoverOf[V]) recentlyFailed(ctx context.Context, key []byte) error {
 	if f.config.FailedUpdateTTL > -1 {
 		errVal, err := f.Errors.Read(ctx, key)
 		if err == nil {
-			return errVal.(error)
+			return errVal
 		}
 	}
 
 	return nil
 }
 
-func (f *FailoverOf[value]) observeMutability(ctx context.Context, uVal, val value) {
+func (f *FailoverOf[V]) observeMutability(ctx context.Context, uVal, val V) {
 	equal := reflect.DeepEqual(val, uVal)
 	if !equal {
 		f.stat.Add(ctx, MetricChanged, 1, "name", f.config.Name)

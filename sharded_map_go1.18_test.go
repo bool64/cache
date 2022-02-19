@@ -41,7 +41,7 @@ func TestNewShardedMapOf(t *testing.T) {
 		v, err = c.Read(ctx, []byte("foo"))
 		assert.EqualError(t, err, cache.ErrExpired.Error())
 		assert.Empty(t, v)
-		assert.Equal(t, "bar", err.(cache.ErrWithExpiredItem).Value())
+		assert.Equal(t, "bar", err.(cache.ErrWithExpiredItemOf[string]).Value())
 
 		assert.NoError(t, c.Delete(ctx, []byte("foo")))
 		assert.Equal(t, 0, c.Len())
