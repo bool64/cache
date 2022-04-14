@@ -65,7 +65,7 @@ func SkipRead(ctx context.Context) bool {
 
 // detachedContext exposes parent values, but suppresses parent cancellation.
 type detachedContext struct {
-	parent context.Context
+	parent context.Context // nolint:containedctx // This wrapping is here on purpose.
 }
 
 func (d detachedContext) Deadline() (deadline time.Time, ok bool) {
