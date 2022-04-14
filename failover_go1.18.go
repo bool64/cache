@@ -306,7 +306,7 @@ func (f *FailoverOf[V]) doBuild(
 	key []byte,
 	val V,
 	buildFunc func(ctx context.Context) (V, error),
-) (v V, _ error) {
+) (v V, _ error) { // nolint:dupl // Generic API is different.
 	if f.stat != nil {
 		defer func() {
 			f.stat.Add(ctx, MetricBuild, 1, "name", f.config.Name)

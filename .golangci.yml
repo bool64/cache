@@ -64,4 +64,7 @@ issues:
         - errcheck
         - errorlint
       path: "_test.go"
+    - linters:
+        - revive
+      text: "receiver-naming: receiver name"
 
