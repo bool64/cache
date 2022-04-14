@@ -30,6 +30,19 @@ v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (interface{}, e
 })
 ```
 
+Or, starting with go1.18 you can use generic API.
+
+```go
+f := cache.NewFailoverOf[Dog]()
+
+// Get value from cache or the function.
+v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (Dog, error) {
+    // Build value or return error on failure.
+
+    return Dog{Name: "Snoopy"}, nil
+})
+```
+
 Additionally, there are few other aspects of behavior to optimize performance.
 
 * Builder function is locked per key, so if the key needs a fresh value the builder function is only called once. All
@@ -72,6 +85,8 @@ storage sharded by key. It offers good performance for concurrent usage. Values 
 
 An instance can be created with [`NewShardedMap`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMap) and
 functional options.
+
+Generic API is also available with [`NewShardedMapOf`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapOf).
 
 It is recommended that separate caches are used for different entities, this helps observability on the sizes and
 activity for particular entities. Cache `Name` can be configured to reflect the purpose. Additionally, `Logger`

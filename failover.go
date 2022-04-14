@@ -133,8 +133,8 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 func (f *Failover) Get(
 	ctx context.Context,
 	key []byte,
-	buildFunc func(ctx context.Context,
-	) (interface{}, error)) (interface{}, error) {
+	buildFunc func(ctx context.Context) (interface{}, error),
+) (interface{}, error) {
 	var (
 		value interface{}
 		err   error
@@ -303,7 +303,7 @@ func (f *Failover) doBuild(
 	key []byte,
 	value interface{},
 	buildFunc func(ctx context.Context) (interface{}, error),
-) (interface{}, error) {
+) (interface{}, error) { // nolint:dupl // Non-generic API is different.
 	if f.stat != nil {
 		defer func() {
 			f.stat.Add(ctx, MetricBuild, 1, "name", f.config.Name)
