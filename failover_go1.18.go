@@ -10,8 +10,6 @@ import (
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/bool64/stats"
 )
 
 // FailoverConfigOf is optional configuration for NewFailoverOf.
@@ -51,7 +49,7 @@ type FailoverConfigOf[V any] struct {
 	Logger Logger
 
 	// Stats tracks stats.
-	Stats stats.Tracker
+	Stats StatsTracker
 
 	// ObserveMutability enables deep equal check with metric collection on cache update.
 	ObserveMutability bool
@@ -74,7 +72,7 @@ type FailoverOf[V any] struct {
 	keyLocks map[string]*klOf[V] // Preventing update concurrency per key
 	config   FailoverConfigOf[V]
 	logTrait
-	stat stats.Tracker
+	stat StatsTracker
 }
 
 // NewFailoverOf creates a FailoverOf cache instance.
