@@ -3,8 +3,6 @@ package cache
 import (
 	"context"
 	"time"
-
-	"github.com/bool64/stats"
 )
 
 func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
@@ -63,8 +61,7 @@ type trait struct {
 	closed chan struct{}
 
 	config Config
-	log    Logger
-	stat   stats.Tracker
+	stat   StatsTracker
 	logTrait
 }
 
@@ -97,7 +94,6 @@ func newTrait(b backend, config Config) *trait {
 	t := &trait{
 		config: config,
 		stat:   config.Stats,
-		log:    config.Logger,
 		closed: make(chan struct{}),
 	}
 	t.logTrait.setup(config.Logger)
@@ -155,8 +151,8 @@ type Config struct {
 	// Logger is an instance of contextualized logger, can be nil.
 	Logger Logger
 
-	// Stats is metrics collector, can be nil.
-	Stats stats.Tracker
+	// Stats is a metrics collector, can be nil.
+	Stats StatsTracker
 
 	// Name is cache instance name, used in stats and logging.
 	Name string

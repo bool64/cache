@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	github.com/bool64/ctxd v1.1.2
-	github.com/bool64/dev v0.2.10
 	github.com/bool64/stats v0.2.2
 	github.com/cespare/xxhash/v2 v2.1.2
 	github.com/stretchr/testify v1.7.1
@@ -12,6 +11,7 @@ require (
 )
 
 require (
+	github.com/bool64/dev v0.2.10 // indirect
 	github.com/bool64/shared v0.1.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/iancoleman/orderedmap v0.2.0 // indirect

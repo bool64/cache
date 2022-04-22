@@ -1,6 +1,8 @@
 package cache
 
-import "context"
+import (
+	"context"
+)
 
 // NewLogger creates logger instance from logging functions.
 //
@@ -52,7 +54,7 @@ type logTrait struct {
 }
 
 func (lt logTrait) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {
-	lt.logError(ctx, msg, keysAndValues)
+	lt.logError(ctx, msg, keysAndValues...)
 }
 
 func (lt *logTrait) setup(l Logger) {

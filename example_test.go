@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bool64/cache"
-	"github.com/bool64/stats"
 )
 
 func ExampleNewShardedMap() {
@@ -19,7 +18,6 @@ func ExampleNewShardedMap() {
 		Logger: cache.NewLogger(func(ctx context.Context, msg string, keysAndValues ...interface{}) {
 			log.Printf("cache failed: %s %v", msg, keysAndValues)
 		}, nil, nil, nil),
-		Stats: &stats.TrackerMock{},
 
 		// Tweak these parameters to reduce/stabilize rwMutexMap consumption at cost of cache hit rate.
 		// If cache cardinality and size are reasonable, default values should be fine.

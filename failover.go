@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/bool64/stats"
 )
 
 // FailoverConfig is optional configuration for NewFailover.
@@ -48,7 +46,7 @@ type FailoverConfig struct {
 	Logger Logger
 
 	// Stats tracks stats.
-	Stats stats.Tracker
+	Stats StatsTracker
 
 	// ObserveMutability enables deep equal check with metric collection on cache update.
 	ObserveMutability bool
@@ -79,7 +77,7 @@ type Failover struct {
 
 	logTrait
 
-	stat stats.Tracker
+	stat StatsTracker
 }
 
 // NewFailover creates a Failover cache instance.
