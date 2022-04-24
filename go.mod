@@ -3,7 +3,7 @@ module github.com/bool64/cache
 go 1.18
 
 require (
-	github.com/bool64/ctxd v1.1.2
+	github.com/bool64/ctxd v1.1.3
 	github.com/bool64/dev v0.2.10
 	github.com/bool64/stats v0.2.2
 	github.com/cespare/xxhash/v2 v2.1.2

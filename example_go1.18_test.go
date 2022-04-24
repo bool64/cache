@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/bool64/cache"
-	"github.com/bool64/ctxd"
-	"github.com/bool64/stats"
 )
 
 func ExampleNewShardedMapOf() {
@@ -24,8 +22,10 @@ func ExampleNewShardedMapOf() {
 	c := cache.NewShardedMapOf[Dog](cache.Config{
 		Name:       "dogs",
 		TimeToLive: 13 * time.Minute,
-		Logger:     &ctxd.LoggerMock{},
-		Stats:      &stats.TrackerMock{},
+		// Logging errors with standard logger, non-error messages are ignored.
+		Logger: cache.NewLogger(func(ctx context.Context, msg string, keysAndValues ...interface{}) {
+			log.Printf("cache failed: %s %v", msg, keysAndValues)
+		}, nil, nil, nil),
 
 		// Tweak these parameters to reduce/stabilize rwMutexMap consumption at cost of cache hit rate.
 		// If cache cardinality and size are reasonable, default values should be fine.

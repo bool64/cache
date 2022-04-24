@@ -6,12 +6,10 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/bool64/ctxd"
-	"github.com/bool64/stats"
 )
 
 // FailoverConfigOf is optional configuration for NewFailoverOf.
@@ -48,10 +46,10 @@ type FailoverConfigOf[V any] struct {
 	FailHard bool
 
 	// Logger collects messages with context.
-	Logger ctxd.Logger
+	Logger Logger
 
 	// Stats tracks stats.
-	Stats stats.Tracker
+	Stats StatsTracker
 
 	// ObserveMutability enables deep equal check with metric collection on cache update.
 	ObserveMutability bool
@@ -73,8 +71,8 @@ type FailoverOf[V any] struct {
 	lock     sync.Mutex          // Securing keyLocks
 	keyLocks map[string]*klOf[V] // Preventing update concurrency per key
 	config   FailoverConfigOf[V]
-	log      ctxd.Logger
-	stat     stats.Tracker
+	logTrait
+	stat StatsTracker
 }
 
 // NewFailoverOf creates a FailoverOf cache instance.
@@ -97,7 +95,7 @@ func NewFailoverOf[V any](options ...func(cfg *FailoverConfigOf[V])) *FailoverOf
 
 	f := &FailoverOf[V]{}
 	f.config = cfg
-	f.log = cfg.Logger
+	f.logTrait.setup(cfg.Logger)
 	f.stat = cfg.Stats
 	f.backend = cfg.Backend
 
@@ -214,8 +212,8 @@ func (f *FailoverOf[V]) Get(
 		keyLock.val, keyLock.err = f.doBuild(ctx, key, val, buildFunc)
 		// Return stale value if update fails.
 		if keyLock.err != nil {
-			if f.log != nil {
-				f.log.Warn(ctx, "failed to update stale cache value",
+			if f.logWarn != nil {
+				f.logWarn(ctx, "failed to update stale cache value",
 					"error", keyLock.err,
 					"name", f.config.Name,
 					"key", key)
@@ -241,8 +239,8 @@ func (f *FailoverOf[V]) Get(
 		}()
 
 		keyLock.val, keyLock.err = f.doBuild(ctx, key, val, buildFunc)
-		if keyLock.err != nil && f.log != nil {
-			f.log.Warn(ctx, "failed to update cache value in background",
+		if keyLock.err != nil && f.logWarn != nil {
+			f.logWarn(ctx, "failed to update cache value in background",
 				"error", keyLock.err,
 				"name", f.config.Name,
 				"key", key)
@@ -271,8 +269,8 @@ func (f *FailoverOf[V]) freshEnough(err error) (val V, _ bool) {
 }
 
 func (f *FailoverOf[V]) waitForValue(ctx context.Context, key []byte, keyLock *klOf[V]) (V, error) {
-	if f.log != nil {
-		f.log.Debug(ctx, "waiting for cache value", "name", f.config.Name, "key", key)
+	if f.logDebug != nil {
+		f.logDebug(ctx, "waiting for cache value", "name", f.config.Name, "key", key)
 	}
 
 	// Waiting for value built by keyLock owner.
@@ -282,8 +280,8 @@ func (f *FailoverOf[V]) waitForValue(ctx context.Context, key []byte, keyLock *k
 }
 
 func (f *FailoverOf[V]) refreshStale(ctx context.Context, key []byte, val V) error {
-	if f.log != nil {
-		f.log.Debug(ctx, "refreshing expired value",
+	if f.logDebug != nil {
+		f.logDebug(ctx, "refreshing expired value",
 			"name", f.config.Name,
 			"key", key,
 			"value", val)
@@ -295,7 +293,7 @@ func (f *FailoverOf[V]) refreshStale(ctx context.Context, key []byte, val V) err
 
 	writeErr := f.backend.Write(WithTTL(ctx, f.config.UpdateTTL, false), key, val)
 	if writeErr != nil {
-		return ctxd.WrapError(ctx, writeErr, "failed to refresh expired value")
+		return fmt.Errorf("failed to refresh expired value: %w", writeErr)
 	}
 
 	return nil
@@ -313,8 +311,8 @@ func (f *FailoverOf[V]) doBuild(
 		}()
 	}
 
-	if f.log != nil {
-		f.log.Debug(ctx, "building cache value", "name", f.config.Name, "key", key)
+	if f.logDebug != nil {
+		f.logDebug(ctx, "building cache value", "name", f.config.Name, "key", key)
 	}
 
 	uVal, err := buildFunc(ctx)
@@ -325,8 +323,8 @@ func (f *FailoverOf[V]) doBuild(
 
 		if f.config.FailedUpdateTTL > -1 {
 			writeErr := f.Errors.Write(ctx, key, err)
-			if writeErr != nil && f.log != nil {
-				f.log.Error(ctx, "failed to cache update failure",
+			if writeErr != nil && f.logError != nil {
+				f.logError(ctx, "failed to cache update failure",
 					"error", writeErr,
 					"updateErr", err,
 					"key", key,

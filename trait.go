@@ -3,37 +3,34 @@ package cache
 import (
 	"context"
 	"time"
-
-	"github.com/bool64/ctxd"
-	"github.com/bool64/stats"
 )
 
-func (c Config) reportItemsCount(b backend, closed chan struct{}) {
+func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 	for {
-		interval := c.ItemsCountReportInterval
+		interval := c.config.ItemsCountReportInterval
 
 		select {
 		case <-time.After(interval):
 			count := b.Len()
 
-			if c.Logger != nil {
-				c.Logger.Debug(context.Background(), "cache items count",
-					"name", c.Name,
+			if c.logDebug != nil {
+				c.logDebug(context.Background(), "cache items count",
+					"name", c.config.Name,
 					"count", b.Len(),
 				)
 			}
 
-			if c.Stats != nil {
-				c.Stats.Set(context.Background(), MetricItems, float64(count), "name", c.Name)
+			if c.stat != nil {
+				c.stat.Set(context.Background(), MetricItems, float64(count), "name", c.config.Name)
 			}
 		case <-closed:
-			if c.Logger != nil {
-				c.Logger.Debug(context.Background(), "closing cache items counter goroutine",
-					"name", c.Name)
+			if c.logDebug != nil {
+				c.logDebug(context.Background(), "closing cache items counter goroutine",
+					"name", c.config.Name)
 			}
 
-			if c.Stats != nil {
-				c.Stats.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.Name)
+			if c.stat != nil {
+				c.stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.config.Name)
 			}
 
 			return
@@ -41,18 +38,18 @@ func (c Config) reportItemsCount(b backend, closed chan struct{}) {
 	}
 }
 
-func (c Config) janitor(b backend, closed chan struct{}) {
+func (c *trait) janitor(b backend, closed chan struct{}) {
 	for {
-		interval := c.DeleteExpiredJobInterval
+		interval := c.config.DeleteExpiredJobInterval
 
 		select {
 		case <-time.After(interval):
-			expirationBoundary := time.Now().Add(-c.DeleteExpiredAfter)
+			expirationBoundary := time.Now().Add(-c.config.DeleteExpiredAfter)
 			b.deleteExpiredBefore(expirationBoundary)
 		case <-closed:
-			if c.Logger != nil {
-				c.Logger.Debug(context.Background(), "closing cache janitor",
-					"name", c.Name)
+			if c.logDebug != nil {
+				c.logDebug(context.Background(), "closing cache janitor",
+					"name", c.config.Name)
 			}
 
 			return
@@ -64,8 +61,8 @@ type trait struct {
 	closed chan struct{}
 
 	config Config
-	log    ctxd.Logger
-	stat   stats.Tracker
+	stat   StatsTracker
+	logTrait
 }
 
 type backend interface {
@@ -97,23 +94,23 @@ func newTrait(b backend, config Config) *trait {
 	t := &trait{
 		config: config,
 		stat:   config.Stats,
-		log:    config.Logger,
 		closed: make(chan struct{}),
 	}
+	t.logTrait.setup(config.Logger)
 
 	if config.Stats != nil {
-		go config.reportItemsCount(b, t.closed)
+		go t.reportItemsCount(b, t.closed)
 	}
 
-	go config.janitor(b, t.closed)
+	go t.janitor(b, t.closed)
 
 	return t
 }
 
 func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
 	if !found {
-		if c.log != nil {
-			c.log.Debug(ctx, "cache miss", "name", c.config.Name)
+		if c.logDebug != nil {
+			c.logDebug(ctx, "cache miss", "name", c.config.Name)
 		}
 
 		if c.stat != nil {
@@ -124,8 +121,8 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 	}
 
 	if cacheEntry.E.Before(time.Now()) {
-		if c.log != nil {
-			c.config.Logger.Debug(ctx, "cache key expired", "name", c.config.Name)
+		if c.logDebug != nil {
+			c.logDebug(ctx, "cache key expired", "name", c.config.Name)
 		}
 
 		if c.stat != nil {
@@ -139,8 +136,8 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 		c.stat.Add(ctx, MetricHit, 1, "name", c.config.Name)
 	}
 
-	if c.log != nil {
-		c.log.Debug(ctx, "cache hit",
+	if c.logDebug != nil {
+		c.logDebug(ctx, "cache hit",
 			"name", c.config.Name,
 			"entry", cacheEntry,
 		)
@@ -152,10 +149,10 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 // Config controls cache instance.
 type Config struct {
 	// Logger is an instance of contextualized logger, can be nil.
-	Logger ctxd.Logger
+	Logger Logger
 
-	// Stats is metrics collector, can be nil.
-	Stats stats.Tracker
+	// Stats is a metrics collector, can be nil.
+	Stats StatsTracker
 
 	// Name is cache instance name, used in stats and logging.
 	Name string

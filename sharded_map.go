@@ -137,8 +137,8 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 	b.data[h] = &entry{V: v, K: key, E: time.Now().Add(ttl)}
 
-	if c.log != nil {
-		c.log.Debug(ctx, "wrote to cache",
+	if c.logDebug != nil {
+		c.logDebug(ctx, "wrote to cache",
 			"name", c.config.Name,
 			"key", string(key),
 			"value", v,
@@ -170,8 +170,8 @@ func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
 
 	delete(b.data, h)
 
-	if c.log != nil {
-		c.log.Debug(ctx, "deleted cache entry",
+	if c.logDebug != nil {
+		c.logDebug(ctx, "deleted cache entry",
 			"name", c.config.Name,
 			"key", string(key),
 		)
@@ -196,8 +196,8 @@ func (c *shardedMap) ExpireAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.log != nil {
-		c.log.Important(ctx, "expired all entries in cache",
+	if c.logImportant != nil {
+		c.logImportant(ctx, "expired all entries in cache",
 			"name", c.config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
@@ -221,8 +221,8 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.log != nil {
-		c.log.Important(ctx, "deleted all entries in cache",
+	if c.logImportant != nil {
+		c.logImportant(ctx, "deleted all entries in cache",
 			"name", c.config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,

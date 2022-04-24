@@ -1,5 +1,7 @@
 package cache
 
+import "context"
+
 const (
 	// MetricMiss is a name of a metric to count cache miss events.
 	MetricMiss = "cache_miss"
@@ -25,3 +27,42 @@ const (
 	// MetricEvict is a name of metric to count evictions.
 	MetricEvict = "cache_evict"
 )
+
+// NewStatsTracker creates logger instance from tracking functions.
+func NewStatsTracker(
+	add,
+	set func(ctx context.Context, name string, val float64, labelsAndValues ...string),
+) StatsTracker {
+	if add == nil || set == nil {
+		panic("both add and set must not be nil")
+	}
+
+	return tracker{
+		add: add,
+		set: set,
+	}
+}
+
+// StatsTracker collects incremental and absolute (gauge) metrics.
+//
+// This interface matches github.com/bool64/stats.Tracker.
+type StatsTracker interface {
+	// Add collects additional or observable value.
+	Add(ctx context.Context, name string, increment float64, labelsAndValues ...string)
+
+	// Set collects absolute value, e.g. number of cache entries at the moment.
+	Set(ctx context.Context, name string, absolute float64, labelsAndValues ...string)
+}
+
+type tracker struct {
+	add func(ctx context.Context, name string, val float64, labelsAndValues ...string)
+	set func(ctx context.Context, name string, val float64, labelsAndValues ...string)
+}
+
+func (t tracker) Add(ctx context.Context, name string, increment float64, labelsAndValues ...string) {
+	t.add(ctx, name, increment, labelsAndValues...)
+}
+
+func (t tracker) Set(ctx context.Context, name string, absolute float64, labelsAndValues ...string) {
+	t.set(ctx, name, absolute, labelsAndValues...)
+}

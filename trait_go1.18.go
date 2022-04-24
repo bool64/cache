@@ -6,60 +6,24 @@ package cache
 import (
 	"context"
 	"time"
-
-	"github.com/bool64/ctxd"
-	"github.com/bool64/stats"
 )
 
 type traitOf[V any] struct {
-	closed chan struct{}
-
-	config Config
-	log    ctxd.Logger
-	stat   stats.Tracker
+	trait
 }
 
 func newTraitOf[V any](b backend, config Config) *traitOf[V] {
-	if config.DeleteExpiredAfter == 0 {
-		config.DeleteExpiredAfter = 24 * time.Hour
-	}
+	t := &traitOf[V]{}
 
-	if config.DeleteExpiredJobInterval == 0 {
-		config.DeleteExpiredJobInterval = time.Hour
-	}
-
-	if config.ItemsCountReportInterval == 0 {
-		config.ItemsCountReportInterval = time.Minute
-	}
-
-	if config.ExpirationJitter == 0 {
-		config.ExpirationJitter = 0.1
-	}
-
-	if config.TimeToLive == 0 {
-		config.TimeToLive = 5 * time.Minute
-	}
-
-	t := &traitOf[V]{
-		config: config,
-		stat:   config.Stats,
-		log:    config.Logger,
-		closed: make(chan struct{}),
-	}
-
-	if config.Stats != nil {
-		go config.reportItemsCount(b, t.closed)
-	}
-
-	go config.janitor(b, t.closed)
+	t.trait = *newTrait(b, config)
 
 	return t
 }
 
 func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], found bool) (v V, err error) {
 	if !found {
-		if c.log != nil {
-			c.log.Debug(ctx, "cache miss", "name", c.config.Name)
+		if c.logDebug != nil {
+			c.logDebug(ctx, "cache miss", "name", c.config.Name)
 		}
 
 		if c.stat != nil {
@@ -70,8 +34,8 @@ func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], fo
 	}
 
 	if cacheEntry.E.Before(time.Now()) {
-		if c.log != nil {
-			c.config.Logger.Debug(ctx, "cache key expired", "name", c.config.Name)
+		if c.logDebug != nil {
+			c.logDebug(ctx, "cache key expired", "name", c.config.Name)
 		}
 
 		if c.stat != nil {
@@ -85,8 +49,8 @@ func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], fo
 		c.stat.Add(ctx, MetricHit, 1, "name", c.config.Name)
 	}
 
-	if c.log != nil {
-		c.log.Debug(ctx, "cache hit",
+	if c.logDebug != nil {
+		c.logDebug(ctx, "cache hit",
 			"name", c.config.Name,
 			"entry", cacheEntry,
 		)
