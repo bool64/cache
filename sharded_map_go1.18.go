@@ -20,6 +20,7 @@ import (
 var (
 	_ ReadWriterOf[any] = &shardedMapOf[any]{}
 	_ Deleter           = &shardedMapOf[any]{}
+	_ WalkerOf[any]     = &shardedMapOf[any]{}
 )
 
 // ShardedMapOf is an in-memory cache backend. Please use NewShardedMapOf to create it.
@@ -280,6 +281,57 @@ func (c *shardedMapOf[V]) Walk(walkFn func(e EntryOf[V]) error) (int, error) {
 			b.RUnlock()
 
 			err := walkFn(v)
+			if err != nil {
+				return n, err
+			}
+
+			n++
+
+			b.RLock()
+		}
+		b.RUnlock()
+	}
+
+	return n, nil
+}
+
+// WalkDumpRestorer is an adapter of a non-generic cache transfer interface.
+func (c *ShardedMapOf[V]) WalkDumpRestorer() WalkDumpRestorer {
+	cc := *c
+	lc := shardedMapLegacyWalkerOf[V](cc)
+
+	var w struct {
+		Dumper
+		Restorer
+		Walker
+	}
+
+	w.Dumper = c
+	w.Walker = &lc
+	w.Restorer = c
+
+	return w
+}
+
+type shardedMapLegacyWalkerOf[V any] ShardedMapOf[V]
+
+// Walk walks cached entries.
+func (c *shardedMapLegacyWalkerOf[V]) Walk(walkFn func(e Entry) error) (int, error) {
+	n := 0
+
+	for i := range c.hashedBuckets {
+		b := &c.hashedBuckets[i]
+		b.RLock()
+		for _, v := range c.hashedBuckets[i].data {
+			b.RUnlock()
+
+			e := entry{
+				K: v.K,
+				V: v.V,
+				E: v.E,
+			}
+
+			err := walkFn(e)
 			if err != nil {
 				return n, err
 			}
