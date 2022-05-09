@@ -29,6 +29,11 @@ func (t *HTTPTransfer) AddCache(name string, c WalkDumpRestorer) {
 	t.caches[name] = c
 }
 
+// CachesCount returns how many caches were added.
+func (t *HTTPTransfer) CachesCount() int {
+	return len(t.caches)
+}
+
 // ExportJSONL creates http handler to export cache entries as JSON lines.
 func (t *HTTPTransfer) ExportJSONL() http.Handler {
 	logger := logTrait{}
