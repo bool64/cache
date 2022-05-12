@@ -3,12 +3,9 @@ package cache_test
 import (
 	"context"
 	"encoding/binary"
-	"math"
-	"runtime"
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/bool64/cache"
 )
@@ -51,31 +48,6 @@ func Benchmark_ShardedByteMap_concurrent(b *testing.B) {
 	}
 
 	wg.Wait()
-}
-
-func heapInUse() int64 {
-	var (
-		m         = runtime.MemStats{}
-		prevInUse uint64
-		prevNumGC uint32
-	)
-
-	for {
-		runtime.ReadMemStats(&m)
-
-		if prevNumGC != 0 && math.Abs(float64(m.HeapInuse-prevInUse)) < 10*1024 {
-			break
-		}
-
-		prevInUse = m.HeapInuse
-		prevNumGC = m.NumGC
-
-		time.Sleep(50 * time.Millisecond)
-
-		runtime.GC()
-	}
-
-	return int64(m.HeapInuse)
 }
 
 // Benchmark_Failover_noSyncRead-8   	 7716646	       148.8 ns/op	       0 B/op	       0 allocs/op.

@@ -3,7 +3,6 @@ package cache_test
 import (
 	"context"
 	"runtime"
-	"strconv"
 	"testing"
 	"time"
 
@@ -104,67 +103,4 @@ func TestNewShardedMap(t *testing.T) {
 cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())
-}
-
-// shardedMapBaseline is a benchmark runner.
-type shardedMapBaseline struct {
-	c           *cache.ShardedMap
-	cardinality int
-}
-
-func (cl shardedMapBaseline) make(b *testing.B, cardinality int) (cacheLoader, string) {
-	b.Helper()
-
-	c := cache.NewShardedMap()
-	buf := make([]byte, 0)
-
-	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(keyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		c.Store(buf, makeCachedValue(i))
-	}
-
-	return shardedMapBaseline{
-		c:           c,
-		cardinality: cardinality,
-	}, "shardedMap-base"
-}
-
-func (cl shardedMapBaseline) run(b *testing.B, cnt int, writeEvery int) {
-	b.Helper()
-
-	buf := make([]byte, 0, 10)
-	w := 0
-	ctx := context.Background()
-
-	for i := 0; i < cnt; i++ {
-		i := (i ^ 12345) % cl.cardinality
-
-		buf = append(buf[:0], []byte(keyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		w++
-		if w == writeEvery {
-			w = 0
-
-			buf = append(buf, 'n') // Insert new key.
-
-			cl.c.Store(buf, makeCachedValue(i))
-
-			if err := cl.c.Delete(ctx, buf); err != nil && err != cache.ErrNotFound {
-				b.Fatalf("err: %v", err)
-			}
-
-			continue
-		}
-
-		v, found := cl.c.Load(buf)
-
-		if !found || v == nil || v.(smallCachedValue).i != i {
-			b.Fatalf("found: %v, val: %v", found, v)
-		}
-	}
 }

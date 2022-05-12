@@ -187,20 +187,24 @@ func (f *Failover) Get(
 	// If already locked waiting for completion before checking backend again.
 	if alreadyLocked {
 		// Return immediately if update is in progress and stale value available.
-		if val, freshEnough := f.freshEnough(err); freshEnough {
+		if val, freshEnough, unexpectedBackendError := f.valueFromError(err); freshEnough {
 			return val, nil
+		} else if unexpectedBackendError != nil {
+			return nil, unexpectedBackendError // Cache backend failed with unexpected error.
 		}
 
 		return f.waitForValue(withoutSkipRead(ctx), key, keyLock)
 	}
 
 	// Pushing expired value with short ttl to serve during update.
-	if val, freshEnough := f.freshEnough(err); freshEnough {
+	if val, freshEnough, unexpectedBackendError := f.valueFromError(err); freshEnough {
 		if err = f.refreshStale(ctx, key, val); err != nil {
 			return nil, err
 		}
 
 		value = val
+	} else if unexpectedBackendError != nil {
+		return nil, unexpectedBackendError // Cache backend failed with unexpected error.
 	}
 
 	// Check if update failed recently.
@@ -256,16 +260,26 @@ func (f *Failover) Get(
 	return value, nil
 }
 
-func (f *Failover) freshEnough(err error) (interface{}, bool) {
+func (f *Failover) valueFromError(err error) (interface{}, bool, error) {
 	var errExpired ErrWithExpiredItem
+
+	if err == nil {
+		return nil, false, nil
+	}
 
 	if errors.As(err, &errExpired) {
 		if f.config.MaxStaleness == 0 || time.Since(errExpired.ExpiredAt()) < f.config.MaxStaleness {
-			return errExpired.Value(), true
+			return errExpired.Value(), true, nil
 		}
+
+		return nil, false, nil
 	}
 
-	return nil, false
+	if errors.Is(err, ErrNotFound) {
+		return nil, false, nil
+	}
+
+	return nil, false, err
 }
 
 func (f *Failover) waitForValue(ctx context.Context, key []byte, keyLock *kl) (interface{}, error) {

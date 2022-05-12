@@ -6,7 +6,6 @@ package cache_test
 import (
 	"context"
 	"runtime"
-	"strconv"
 	"testing"
 	"time"
 
@@ -107,67 +106,4 @@ func TestNewShardedMapOf(t *testing.T) {
 cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())
-}
-
-// shardedMapOfBaseline is a benchmark runner.
-type shardedMapOfBaseline struct {
-	c           *cache.ShardedMapOf[smallCachedValue]
-	cardinality int
-}
-
-func (cl shardedMapOfBaseline) make(b *testing.B, cardinality int) (cacheLoader, string) {
-	b.Helper()
-
-	c := cache.NewShardedMapOf[smallCachedValue]()
-	buf := make([]byte, 0)
-
-	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(keyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		c.Store(buf, makeCachedValue(i))
-	}
-
-	return shardedMapOfBaseline{
-		c:           c,
-		cardinality: cardinality,
-	}, "shardedMapOf-base"
-}
-
-func (cl shardedMapOfBaseline) run(b *testing.B, cnt int, writeEvery int) {
-	b.Helper()
-
-	buf := make([]byte, 0, 10)
-	w := 0
-	ctx := context.Background()
-
-	for i := 0; i < cnt; i++ {
-		i := (i ^ 12345) % cl.cardinality
-
-		buf = append(buf[:0], []byte(keyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		w++
-		if w == writeEvery {
-			w = 0
-
-			buf = append(buf, 'n') // Insert new key.
-
-			cl.c.Store(buf, makeCachedValue(i))
-
-			if err := cl.c.Delete(ctx, buf); err != nil && err != cache.ErrNotFound {
-				b.Fatalf("err: %v", err)
-			}
-
-			continue
-		}
-
-		v, found := cl.c.Load(buf)
-
-		if !found || v.i != i {
-			b.Fatalf("found: %v, val: %v", found, v)
-		}
-	}
 }
