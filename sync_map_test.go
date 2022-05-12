@@ -100,7 +100,7 @@ func TestNewSyncMap(t *testing.T) {
 	// and can arrive in random order.
 
 	assert.Equal(t, `cache_delete{name="test"} 1
-cache_expired{name="test"} 1
+cache_expired{name="test"} 2
 cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())

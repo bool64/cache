@@ -157,27 +157,21 @@ func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
 
 // ExpireAll marks all entries as expired, they can still serve stale cache.
 func (c *shardedMap) ExpireAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 		b.Lock()
 		for h, v := range b.data {
-			v.E = now
+			v.E = start
 			b.data[h] = v
 			cnt++
 		}
 		b.Unlock()
 	}
 
-	if c.t.Log.logImportant != nil {
-		c.t.Log.logImportant(ctx, "expired all entries in cache",
-			"name", c.t.Config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyExpiredAll(ctx, start, cnt)
 }
 
 // DeleteAll erases all entries.
@@ -196,13 +190,7 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.t.Log.logImportant != nil {
-		c.t.Log.logImportant(ctx, "deleted all entries in cache",
-			"name", c.t.Config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyDeletedAll(ctx, now, cnt)
 }
 
 func (c *shardedMap) deleteExpiredBefore(expirationBoundary time.Time) {

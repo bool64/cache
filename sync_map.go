@@ -86,30 +86,24 @@ func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 
 // ExpireAll marks all entries as expired, they can still serve stale values.
 func (c *syncMap) ExpireAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
 
-		cacheEntry.E = now
+		cacheEntry.E = start
 		cnt++
 
 		return true
 	})
 
-	if c.t.Log.logImportant != nil {
-		c.t.Log.logImportant(ctx, "expired all entries in cache",
-			"name", c.t.Config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyExpiredAll(ctx, start, cnt)
 }
 
 // DeleteAll erases all entries.
 func (c *syncMap) DeleteAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	c.data.Range(func(key, _ interface{}) bool {
@@ -119,13 +113,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 		return true
 	})
 
-	if c.t.Log.logImportant != nil {
-		c.t.Log.logImportant(ctx, "deleted all entries in cache",
-			"name", c.t.Config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
 func (c *syncMap) deleteExpiredBefore(expirationBoundary time.Time) {

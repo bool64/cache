@@ -188,6 +188,34 @@ func (c *trait) NotifyDeleted(ctx context.Context, key []byte) {
 	}
 }
 
+func (c *trait) NotifyExpiredAll(ctx context.Context, start time.Time, cnt int) {
+	if c.Log.logImportant != nil {
+		c.Log.logImportant(ctx, "expired all entries in cache",
+			"name", c.Config.Name,
+			"elapsed", time.Since(start).String(),
+			"count", cnt,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricExpired, float64(cnt), "name", c.Config.Name)
+	}
+}
+
+func (c *trait) NotifyDeletedAll(ctx context.Context, start time.Time, cnt int) {
+	if c.Log.logImportant != nil {
+		c.Log.logImportant(ctx, "deleted all entries in cache",
+			"name", c.Config.Name,
+			"elapsed", time.Since(start).String(),
+			"count", cnt,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricDelete, float64(cnt), "name", c.Config.Name)
+	}
+}
+
 type keyString []byte
 
 func (ks keyString) MarshalText() ([]byte, error) {
