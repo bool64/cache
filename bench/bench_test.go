@@ -5,7 +5,18 @@ import (
 	"testing"
 
 	"github.com/bool64/cache/bench"
+	"github.com/stretchr/testify/assert"
 )
+
+func TestConcurrently(t *testing.T) {
+	res := testing.Benchmark(func(b *testing.B) {
+		bench.Concurrently(b, []bench.Scenario{
+			{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Baseline},
+		})
+	})
+
+	assert.NotEmpty(t, res.MemString())
+}
 
 func BenchmarkConcurrent(b *testing.B) {
 	var all []bench.Runner
