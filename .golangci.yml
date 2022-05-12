@@ -7,7 +7,7 @@ linters-settings:
     check-type-assertions: true
     check-blank: true
   gocyclo:
-    min-complexity: 20
+    min-complexity: 25
   dupl:
     threshold: 100
   misspell:
@@ -17,14 +17,14 @@ linters-settings:
   unparam:
     check-exported: true
   cyclop:
-    max-complexity: 20
+    max-complexity: 25
   funlen:
-    lines: 125
+    lines: 130
     statements: 60
   nestif:
     min-complexity: 6
   gocognit:
-    min-complexity: 35
+    min-complexity: 40
 
 linters:
   enable-all: true
@@ -64,6 +64,9 @@ issues:
         - errcheck
         - errorlint
       path: "_test.go"
+    - linters:
+        - dupl
+      path: "bench/"
     - linters:
         - revive
       text: "receiver-naming: receiver name"

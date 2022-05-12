@@ -18,6 +18,9 @@ const (
 
 	// ErrAlreadyInvalidated indicates recent invalidation.
 	ErrAlreadyInvalidated = SentinelError("already invalidated")
+
+	// ErrUnexpectedType is thrown on failed type assertion.
+	ErrUnexpectedType = SentinelError("unexpected type")
 )
 
 // Error implements error.
