@@ -13,7 +13,7 @@ func init() {
 	)
 
 	ReadWriters = append(ReadWriters,
-		ReadWriterOfRunner{f: func() cache.ReadWriterOf[SmallCachedValue] {
+		ReadWriterOfRunner{F: func() cache.ReadWriterOf[SmallCachedValue] {
 			return cache.NewShardedMapOf[SmallCachedValue]()
 		}},
 	)

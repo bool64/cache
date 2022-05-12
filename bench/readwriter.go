@@ -14,7 +14,7 @@ import (
 type ReadWriterRunner struct {
 	F func() cache.ReadWriter
 
-	BE          cache.ReadWriter
+	RW          cache.ReadWriter
 	D           cache.Deleter
 	Cardinality int
 }
@@ -40,7 +40,7 @@ func (cl ReadWriterRunner) Make(b *testing.B, cardinality int) (Runner, string) 
 	}
 
 	return ReadWriterRunner{
-		BE:          be,
+		RW:          be,
 		D:           be.(cache.Deleter),
 		Cardinality: cardinality,
 	}, fmt.Sprintf("%T", be)
@@ -66,7 +66,7 @@ func (cl ReadWriterRunner) Run(b *testing.B, cnt int, writeEvery int) {
 
 			buf = append(buf, 'n') // Insert new key.
 
-			err := cl.BE.Write(ctx, buf, MakeCachedValue(i))
+			err := cl.RW.Write(ctx, buf, MakeCachedValue(i))
 			if err != nil {
 				b.Fatalf("err: %v", err)
 			}
@@ -78,7 +78,7 @@ func (cl ReadWriterRunner) Run(b *testing.B, cnt int, writeEvery int) {
 			continue
 		}
 
-		v, err := cl.BE.Read(ctx, buf)
+		v, err := cl.RW.Read(ctx, buf)
 
 		if err != nil || v == nil || v.(SmallCachedValue).I != i {
 			b.Fatalf("err: %v, val: %v", err, v)

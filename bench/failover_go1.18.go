@@ -18,7 +18,7 @@ type FailoverOf struct {
 	F func() cache.ReadWriterOf[SmallCachedValue]
 
 	C           *cache.FailoverOf[SmallCachedValue]
-	d           cache.Deleter
+	D           cache.Deleter
 	Cardinality int
 }
 
@@ -49,7 +49,7 @@ func (cl FailoverOf) Make(b *testing.B, cardinality int) (Runner, string) {
 
 	return FailoverOf{
 		C:           c,
-		d:           be.(cache.Deleter),
+		D:           be.(cache.Deleter),
 		Cardinality: cardinality,
 	}, fmt.Sprintf("FailoverRunner(%T)", be)
 }
@@ -82,7 +82,7 @@ func (cl FailoverOf) Run(b *testing.B, cnt int, writeEvery int) {
 				b.Fatalf("err: %v, val: %v", err, v)
 			}
 
-			if err = cl.d.Delete(ctx, buf); err != nil && !errors.Is(err, cache.ErrNotFound) {
+			if err = cl.D.Delete(ctx, buf); err != nil && !errors.Is(err, cache.ErrNotFound) {
 				b.Fatalf("err: %v, key: %s", err, string(buf))
 			}
 
