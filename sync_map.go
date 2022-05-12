@@ -79,8 +79,8 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 	c.data.Store(string(k), &entry{V: v, K: key, E: time.Now().Add(ttl)})
 
-	if c.t.logDebug != nil {
-		c.t.logDebug(ctx, "wrote to cache",
+	if c.t.Log.logDebug != nil {
+		c.t.Log.logDebug(ctx, "wrote to cache",
 			"name", c.t.Config.Name,
 			"key", string(key),
 			"value", v,
@@ -88,8 +88,8 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 		)
 	}
 
-	if c.t.stat != nil {
-		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
+	if c.t.Stat != nil {
+		c.t.Stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
 	}
 
 	return nil
@@ -99,8 +99,8 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 	c.data.Delete(string(key))
 
-	if c.t.logDebug != nil {
-		c.t.logDebug(ctx, "deleted cache entry",
+	if c.t.Log.logDebug != nil {
+		c.t.Log.logDebug(ctx, "deleted cache entry",
 			"name", c.t.Config.Name,
 			"key", string(key),
 		)
@@ -123,8 +123,8 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 		return true
 	})
 
-	if c.t.logImportant != nil {
-		c.t.logImportant(ctx, "expired all entries in cache",
+	if c.t.Log.logImportant != nil {
+		c.t.Log.logImportant(ctx, "expired all entries in cache",
 			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
@@ -144,8 +144,8 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 		return true
 	})
 
-	if c.t.logImportant != nil {
-		c.t.logImportant(ctx, "deleted all entries in cache",
+	if c.t.Log.logImportant != nil {
+		c.t.Log.logImportant(ctx, "deleted all entries in cache",
 			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
@@ -275,8 +275,8 @@ func (c *syncMap) evictOldest() {
 
 	evictItems := int(float64(len(entries)) * evictFraction)
 
-	if c.t.stat != nil {
-		c.t.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
+	if c.t.Stat != nil {
+		c.t.Stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
 	}
 
 	for i := 0; i < evictItems; i++ {

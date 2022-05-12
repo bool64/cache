@@ -22,35 +22,35 @@ func newTraitOf[V any](b backend, config Config) *traitOf[V] {
 
 func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], found bool) (v V, err error) {
 	if !found {
-		if c.logDebug != nil {
-			c.logDebug(ctx, "cache miss", "name", c.Config.Name)
+		if c.Log.logDebug != nil {
+			c.Log.logDebug(ctx, "cache miss", "name", c.Config.Name)
 		}
 
-		if c.stat != nil {
-			c.stat.Add(ctx, MetricMiss, 1, "name", c.Config.Name)
+		if c.Stat != nil {
+			c.Stat.Add(ctx, MetricMiss, 1, "name", c.Config.Name)
 		}
 
 		return v, ErrNotFound
 	}
 
 	if cacheEntry.E.Before(time.Now()) {
-		if c.logDebug != nil {
-			c.logDebug(ctx, "cache key expired", "name", c.Config.Name)
+		if c.Log.logDebug != nil {
+			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
 
-		if c.stat != nil {
-			c.stat.Add(ctx, MetricExpired, 1, "name", c.Config.Name)
+		if c.Stat != nil {
+			c.Stat.Add(ctx, MetricExpired, 1, "name", c.Config.Name)
 		}
 
 		return v, errExpiredOf[V]{entry: cacheEntry}
 	}
 
-	if c.stat != nil {
-		c.stat.Add(ctx, MetricHit, 1, "name", c.Config.Name)
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricHit, 1, "name", c.Config.Name)
 	}
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "cache hit",
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "cache hit",
 			"name", c.Config.Name,
 			"entry", cacheEntry,
 		)

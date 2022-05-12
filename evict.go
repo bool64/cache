@@ -48,8 +48,8 @@ func (c *shardedMap) evictOldest() {
 
 	evictItems := int(float64(len(entries)) * evictFraction)
 
-	if c.t.stat != nil {
-		c.t.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
+	if c.t.Stat != nil {
+		c.t.Stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
 	}
 
 	for i := 0; i < evictItems; i++ {
