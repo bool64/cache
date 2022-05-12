@@ -11,7 +11,7 @@ import (
 func TestConcurrently(t *testing.T) {
 	res := testing.Benchmark(func(b *testing.B) {
 		bench.Concurrently(b, []bench.Scenario{
-			{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Baseline},
+			{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Failovers},
 		})
 	})
 
