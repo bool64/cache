@@ -43,7 +43,7 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 	c.t = newTrait(c, cfg)
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
-		close(m.t.closed)
+		close(m.t.Closed)
 	})
 
 	return C
@@ -66,11 +66,11 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
-		ttl = c.t.config.TimeToLive
+		ttl = c.t.Config.TimeToLive
 	}
 
-	if c.t.config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.t.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+	if c.t.Config.ExpirationJitter > 0 {
+		ttl += time.Duration(float64(ttl) * c.t.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
 	}
 
 	// Copy key to allow mutations of original argument.
@@ -81,7 +81,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 	if c.t.logDebug != nil {
 		c.t.logDebug(ctx, "wrote to cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"key", string(key),
 			"value", v,
 			"ttl", ttl,
@@ -89,7 +89,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	}
 
 	if c.t.stat != nil {
-		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.config.Name)
+		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
 	}
 
 	return nil
@@ -101,7 +101,7 @@ func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 
 	if c.t.logDebug != nil {
 		c.t.logDebug(ctx, "deleted cache entry",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"key", string(key),
 		)
 	}
@@ -125,7 +125,7 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 
 	if c.t.logImportant != nil {
 		c.t.logImportant(ctx, "expired all entries in cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -146,7 +146,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 
 	if c.t.logImportant != nil {
 		c.t.logImportant(ctx, "deleted all entries in cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -247,7 +247,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 }
 
 func (c *syncMap) evictOldest() {
-	evictFraction := c.t.config.EvictFraction
+	evictFraction := c.t.Config.EvictFraction
 	if evictFraction == 0 {
 		evictFraction = 0.1
 	}
@@ -276,7 +276,7 @@ func (c *syncMap) evictOldest() {
 	evictItems := int(float64(len(entries)) * evictFraction)
 
 	if c.t.stat != nil {
-		c.t.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.config.Name)
+		c.t.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
 	}
 
 	for i := 0; i < evictItems; i++ {
@@ -285,20 +285,20 @@ func (c *syncMap) evictOldest() {
 }
 
 func (c *syncMap) heapInUseOverflow() bool {
-	if c.t.config.HeapInUseSoftLimit == 0 {
+	if c.t.Config.HeapInUseSoftLimit == 0 {
 		return false
 	}
 
 	m := runtime.MemStats{}
 	runtime.ReadMemStats(&m)
 
-	return m.HeapInuse >= c.t.config.HeapInUseSoftLimit
+	return m.HeapInuse >= c.t.Config.HeapInUseSoftLimit
 }
 
 func (c *syncMap) countOverflow() bool {
-	if c.t.config.CountSoftLimit == 0 {
+	if c.t.Config.CountSoftLimit == 0 {
 		return false
 	}
 
-	return c.Len() >= int(c.t.config.CountSoftLimit)
+	return c.Len() >= int(c.t.Config.CountSoftLimit)
 }

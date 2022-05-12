@@ -7,7 +7,7 @@ import (
 
 func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 	for {
-		interval := c.config.ItemsCountReportInterval
+		interval := c.Config.ItemsCountReportInterval
 
 		select {
 		case <-time.After(interval):
@@ -15,22 +15,22 @@ func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 
 			if c.logDebug != nil {
 				c.logDebug(context.Background(), "cache items count",
-					"name", c.config.Name,
+					"name", c.Config.Name,
 					"count", b.Len(),
 				)
 			}
 
 			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(count), "name", c.config.Name)
+				c.stat.Set(context.Background(), MetricItems, float64(count), "name", c.Config.Name)
 			}
 		case <-closed:
 			if c.logDebug != nil {
 				c.logDebug(context.Background(), "closing cache items counter goroutine",
-					"name", c.config.Name)
+					"name", c.Config.Name)
 			}
 
 			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.config.Name)
+				c.stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.Config.Name)
 			}
 
 			return
@@ -40,16 +40,16 @@ func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 
 func (c *trait) janitor(b backend, closed chan struct{}) {
 	for {
-		interval := c.config.DeleteExpiredJobInterval
+		interval := c.Config.DeleteExpiredJobInterval
 
 		select {
 		case <-time.After(interval):
-			expirationBoundary := time.Now().Add(-c.config.DeleteExpiredAfter)
+			expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
 			b.deleteExpiredBefore(expirationBoundary)
 		case <-closed:
 			if c.logDebug != nil {
 				c.logDebug(context.Background(), "closing cache janitor",
-					"name", c.config.Name)
+					"name", c.Config.Name)
 			}
 
 			return
@@ -58,9 +58,9 @@ func (c *trait) janitor(b backend, closed chan struct{}) {
 }
 
 type trait struct {
-	closed chan struct{}
+	Closed chan struct{}
 
-	config Config
+	Config Config
 	stat   StatsTracker
 	logTrait
 }
@@ -92,17 +92,17 @@ func newTrait(b backend, config Config) *trait {
 	}
 
 	t := &trait{
-		config: config,
+		Config: config,
 		stat:   config.Stats,
-		closed: make(chan struct{}),
+		Closed: make(chan struct{}),
 	}
 	t.logTrait.setup(config.Logger)
 
 	if config.Stats != nil {
-		go t.reportItemsCount(b, t.closed)
+		go t.reportItemsCount(b, t.Closed)
 	}
 
-	go t.janitor(b, t.closed)
+	go t.janitor(b, t.Closed)
 
 	return t
 }
@@ -110,11 +110,11 @@ func newTrait(b backend, config Config) *trait {
 func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
 	if !found {
 		if c.logDebug != nil {
-			c.logDebug(ctx, "cache miss", "name", c.config.Name)
+			c.logDebug(ctx, "cache miss", "name", c.Config.Name)
 		}
 
 		if c.stat != nil {
-			c.stat.Add(ctx, MetricMiss, 1, "name", c.config.Name)
+			c.stat.Add(ctx, MetricMiss, 1, "name", c.Config.Name)
 		}
 
 		return nil, ErrNotFound
@@ -122,23 +122,23 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 
 	if cacheEntry.E.Before(time.Now()) {
 		if c.logDebug != nil {
-			c.logDebug(ctx, "cache key expired", "name", c.config.Name)
+			c.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
 
 		if c.stat != nil {
-			c.stat.Add(ctx, MetricExpired, 1, "name", c.config.Name)
+			c.stat.Add(ctx, MetricExpired, 1, "name", c.Config.Name)
 		}
 
 		return nil, errExpired{entry: cacheEntry}
 	}
 
 	if c.stat != nil {
-		c.stat.Add(ctx, MetricHit, 1, "name", c.config.Name)
+		c.stat.Add(ctx, MetricHit, 1, "name", c.Config.Name)
 	}
 
 	if c.logDebug != nil {
 		c.logDebug(ctx, "cache hit",
-			"name", c.config.Name,
+			"name", c.Config.Name,
 			"entry", cacheEntry,
 		)
 	}

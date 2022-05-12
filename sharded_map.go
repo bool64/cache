@@ -56,7 +56,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 	c.t = newTrait(c, cfg)
 
 	runtime.SetFinalizer(C, func(m *ShardedMap) {
-		close(m.t.closed)
+		close(m.t.Closed)
 	})
 
 	return C
@@ -121,14 +121,13 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	b.Lock()
 	defer b.Unlock()
 
-	// ttl := c.config.TimeToLive
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
-		ttl = c.t.config.TimeToLive
+		ttl = c.t.Config.TimeToLive
 	}
 
-	if c.t.config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.t.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+	if c.t.Config.ExpirationJitter > 0 {
+		ttl += time.Duration(float64(ttl) * c.t.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
 	}
 
 	// Copy key to allow mutations of original argument.
@@ -139,7 +138,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 	if c.t.logDebug != nil {
 		c.t.logDebug(ctx, "wrote to cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"key", string(key),
 			"value", v,
 			"ttl", ttl,
@@ -147,7 +146,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	}
 
 	if c.t.stat != nil {
-		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.config.Name)
+		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
 	}
 
 	return nil
@@ -172,7 +171,7 @@ func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
 
 	if c.t.logDebug != nil {
 		c.t.logDebug(ctx, "deleted cache entry",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"key", string(key),
 		)
 	}
@@ -198,7 +197,7 @@ func (c *shardedMap) ExpireAll(ctx context.Context) {
 
 	if c.t.logImportant != nil {
 		c.t.logImportant(ctx, "expired all entries in cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -223,7 +222,7 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 
 	if c.t.logImportant != nil {
 		c.t.logImportant(ctx, "deleted all entries in cache",
-			"name", c.t.config.Name,
+			"name", c.t.Config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -243,7 +242,7 @@ func (c *shardedMap) deleteExpiredBefore(expirationBoundary time.Time) {
 		b.Unlock()
 	}
 
-	if heapInUseOverflow(c.t.config) || countOverflow(c.t.config, c.Len) {
+	if heapInUseOverflow(c.t.Config) || countOverflow(c.t.Config, c.Len) {
 		c.evictOldest()
 	}
 }
