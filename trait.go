@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"math/rand"
 	"time"
 )
 
@@ -144,6 +145,47 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 	}
 
 	return cacheEntry.V, nil
+}
+
+func (c *trait) TTL(ctx context.Context) time.Duration {
+	ttl := TTL(ctx)
+	if ttl == DefaultTTL {
+		ttl = c.Config.TimeToLive
+	}
+
+	if c.Config.ExpirationJitter > 0 {
+		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+	}
+
+	return ttl
+}
+
+func (c *trait) NotifyWritten(ctx context.Context, key []byte, value interface{}, ttl time.Duration) {
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "wrote to cache",
+			"name", c.Config.Name,
+			"key", string(key),
+			"value", value,
+			"ttl", ttl,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricWrite, 1, "name", c.Config.Name)
+	}
+}
+
+func (c *trait) NotifyDeleted(ctx context.Context, key []byte) {
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "deleted cache entry",
+			"name", c.Config.Name,
+			"key", string(key),
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricDelete, 1, "name", c.Config.Name)
+	}
 }
 
 type keyString []byte

@@ -9,7 +9,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
-	"math/rand"
 	"runtime"
 	"sync"
 	"time"
@@ -128,14 +127,7 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 	b.Lock()
 	defer b.Unlock()
 
-	ttl := TTL(ctx)
-	if ttl == DefaultTTL {
-		ttl = c.t.Config.TimeToLive
-	}
-
-	if c.t.Config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.t.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
-	}
+	ttl := c.t.TTL(ctx)
 
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
@@ -143,18 +135,7 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 
 	b.data[h] = &entryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
 
-	if c.t.Log.logDebug != nil {
-		c.t.Log.logDebug(ctx, "wrote to cache",
-			"name", c.t.Config.Name,
-			"key", string(key),
-			"value", v,
-			"ttl", ttl,
-		)
-	}
-
-	if c.t.Stat != nil {
-		c.t.Stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
-	}
+	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
 }
@@ -176,12 +157,7 @@ func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 
 	delete(b.data, h)
 
-	if c.t.Log.logDebug != nil {
-		c.t.Log.logDebug(ctx, "deleted cache entry",
-			"name", c.t.Config.Name,
-			"key", string(key),
-		)
-	}
+	c.t.NotifyDeleted(ctx, key)
 
 	return nil
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
-	"math/rand"
 	"runtime"
 	"sort"
 	"sync"
@@ -64,33 +63,14 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 
 // Write sets value by the key.
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
-	ttl := TTL(ctx)
-	if ttl == DefaultTTL {
-		ttl = c.t.Config.TimeToLive
-	}
-
-	if c.t.Config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.t.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
-	}
+	ttl := c.t.TTL(ctx)
 
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
 	copy(key, k)
 
 	c.data.Store(string(k), &entry{V: v, K: key, E: time.Now().Add(ttl)})
-
-	if c.t.Log.logDebug != nil {
-		c.t.Log.logDebug(ctx, "wrote to cache",
-			"name", c.t.Config.Name,
-			"key", string(key),
-			"value", v,
-			"ttl", ttl,
-		)
-	}
-
-	if c.t.Stat != nil {
-		c.t.Stat.Add(ctx, MetricWrite, 1, "name", c.t.Config.Name)
-	}
+	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
 }
@@ -99,12 +79,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 	c.data.Delete(string(key))
 
-	if c.t.Log.logDebug != nil {
-		c.t.Log.logDebug(ctx, "deleted cache entry",
-			"name", c.t.Config.Name,
-			"key", string(key),
-		)
-	}
+	c.t.NotifyDeleted(ctx, key)
 
 	return nil
 }

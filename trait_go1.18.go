@@ -59,6 +59,21 @@ func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], fo
 	return cacheEntry.V, nil
 }
 
+func (c *traitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl time.Duration) {
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "wrote to cache",
+			"name", c.Config.Name,
+			"key", string(key),
+			"value", value,
+			"ttl", ttl,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricWrite, 1, "name", c.Config.Name)
+	}
+}
+
 // entry is a cache entry.
 type entryOf[V any] struct {
 	K keyString `json:"key"`
