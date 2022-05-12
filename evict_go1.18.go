@@ -9,7 +9,7 @@ import (
 )
 
 func (c *shardedMapOf[V]) evictOldest() {
-	evictFraction := c.config.EvictFraction
+	evictFraction := c.t.config.EvictFraction
 	if evictFraction == 0 {
 		evictFraction = 0.1
 	}
@@ -35,8 +35,8 @@ func (c *shardedMapOf[V]) evictOldest() {
 
 	evictItems := int(float64(len(entries)) * evictFraction)
 
-	if c.stat != nil {
-		c.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.config.Name)
+	if c.t.stat != nil {
+		c.t.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.config.Name)
 	}
 
 	for i := 0; i < evictItems; i++ {

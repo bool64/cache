@@ -36,7 +36,7 @@ type hashedBucketOf[V any] struct {
 type shardedMapOf[V any] struct {
 	hashedBuckets [shards]hashedBucketOf[V]
 
-	*traitOf[V]
+	t *traitOf[V]
 }
 
 // NewShardedMapOf creates an instance of in-memory cache with optional configuration.
@@ -55,10 +55,10 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		option(&cfg)
 	}
 
-	c.traitOf = newTraitOf[V](c, cfg)
+	c.t = newTraitOf[V](c, cfg)
 
 	runtime.SetFinalizer(C, func(m *ShardedMapOf[V]) {
-		close(m.closed)
+		close(m.t.closed)
 	})
 
 	return C
@@ -113,7 +113,7 @@ func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error)
 		found = false
 	}
 
-	v, err := c.prepareRead(ctx, cacheEntry, found)
+	v, err := c.t.prepareRead(ctx, cacheEntry, found)
 	if err != nil {
 		return val, err
 	}
@@ -131,11 +131,11 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 	// ttl := c.config.TimeToLive
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
-		ttl = c.config.TimeToLive
+		ttl = c.t.config.TimeToLive
 	}
 
-	if c.config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+	if c.t.config.ExpirationJitter > 0 {
+		ttl += time.Duration(float64(ttl) * c.t.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
 	}
 
 	// Copy key to allow mutations of original argument.
@@ -144,17 +144,17 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 
 	b.data[h] = &entryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "wrote to cache",
-			"name", c.config.Name,
+	if c.t.logDebug != nil {
+		c.t.logDebug(ctx, "wrote to cache",
+			"name", c.t.config.Name,
 			"key", string(key),
 			"value", v,
 			"ttl", ttl,
 		)
 	}
 
-	if c.stat != nil {
-		c.stat.Add(ctx, MetricWrite, 1, "name", c.config.Name)
+	if c.t.stat != nil {
+		c.t.stat.Add(ctx, MetricWrite, 1, "name", c.t.config.Name)
 	}
 
 	return nil
@@ -177,9 +177,9 @@ func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 
 	delete(b.data, h)
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "deleted cache entry",
-			"name", c.config.Name,
+	if c.t.logDebug != nil {
+		c.t.logDebug(ctx, "deleted cache entry",
+			"name", c.t.config.Name,
 			"key", string(key),
 		)
 	}
@@ -203,9 +203,9 @@ func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "expired all entries in cache",
-			"name", c.config.Name,
+	if c.t.logImportant != nil {
+		c.t.logImportant(ctx, "expired all entries in cache",
+			"name", c.t.config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -228,9 +228,9 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "deleted all entries in cache",
-			"name", c.config.Name,
+	if c.t.logImportant != nil {
+		c.t.logImportant(ctx, "deleted all entries in cache",
+			"name", c.t.config.Name,
 			"elapsed", time.Since(now).String(),
 			"count", cnt,
 		)
@@ -250,7 +250,7 @@ func (c *shardedMapOf[V]) deleteExpiredBefore(expirationBoundary time.Time) {
 		b.Unlock()
 	}
 
-	if heapInUseOverflow(c.config) || countOverflow(c.config, c.Len) {
+	if heapInUseOverflow(c.t.config) || countOverflow(c.t.config, c.Len) {
 		c.evictOldest()
 	}
 }
