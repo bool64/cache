@@ -2,35 +2,37 @@ package cache
 
 import (
 	"context"
+	"math/rand"
+	"runtime"
 	"time"
 )
 
-func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
+func (c *Trait) reportItemsCount() {
 	for {
-		interval := c.config.ItemsCountReportInterval
+		interval := c.Config.ItemsCountReportInterval
 
 		select {
 		case <-time.After(interval):
-			count := b.Len()
+			count := c.Len()
 
-			if c.logDebug != nil {
-				c.logDebug(context.Background(), "cache items count",
-					"name", c.config.Name,
-					"count", b.Len(),
+			if c.Log.logDebug != nil {
+				c.Log.logDebug(context.Background(), "cache items count",
+					"name", c.Config.Name,
+					"count", c.Len(),
 				)
 			}
 
-			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(count), "name", c.config.Name)
+			if c.Stat != nil {
+				c.Stat.Set(context.Background(), MetricItems, float64(count), "name", c.Config.Name)
 			}
-		case <-closed:
-			if c.logDebug != nil {
-				c.logDebug(context.Background(), "closing cache items counter goroutine",
-					"name", c.config.Name)
+		case <-c.Closed:
+			if c.Log.logDebug != nil {
+				c.Log.logDebug(context.Background(), "closing cache items counter goroutine",
+					"name", c.Config.Name)
 			}
 
-			if c.stat != nil {
-				c.stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.config.Name)
+			if c.Stat != nil {
+				c.Stat.Set(context.Background(), MetricItems, float64(c.Len()), "name", c.Config.Name)
 			}
 
 			return
@@ -38,18 +40,33 @@ func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 	}
 }
 
-func (c *trait) janitor(b backend, closed chan struct{}) {
+func (c *Trait) janitor() {
 	for {
-		interval := c.config.DeleteExpiredJobInterval
+		interval := c.Config.DeleteExpiredJobInterval
 
 		select {
 		case <-time.After(interval):
-			expirationBoundary := time.Now().Add(-c.config.DeleteExpiredAfter)
-			b.deleteExpiredBefore(expirationBoundary)
-		case <-closed:
-			if c.logDebug != nil {
-				c.logDebug(context.Background(), "closing cache janitor",
-					"name", c.config.Name)
+			if c.DeleteExpired != nil {
+				expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
+				c.DeleteExpired(expirationBoundary)
+			}
+
+			if c.EvictOldest != nil && (c.heapInUseOverflow() || c.countOverflow()) {
+				frac := c.Config.EvictFraction
+				if frac == 0 {
+					frac = 0.1
+				}
+
+				cnt := c.EvictOldest(frac)
+
+				if c.Stat != nil {
+					c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
+				}
+			}
+		case <-c.Closed:
+			if c.Log.logDebug != nil {
+				c.Log.logDebug(context.Background(), "closing cache janitor",
+					"name", c.Config.Name)
 			}
 
 			return
@@ -57,20 +74,40 @@ func (c *trait) janitor(b backend, closed chan struct{}) {
 	}
 }
 
-type trait struct {
-	closed chan struct{}
+func (c *Trait) heapInUseOverflow() bool {
+	if c.Config.HeapInUseSoftLimit == 0 {
+		return false
+	}
 
-	config Config
-	stat   StatsTracker
-	logTrait
+	m := runtime.MemStats{}
+	runtime.ReadMemStats(&m)
+
+	return m.HeapInuse >= c.Config.HeapInUseSoftLimit
 }
 
-type backend interface {
-	Len() int
-	deleteExpiredBefore(t time.Time)
+func (c *Trait) countOverflow() bool {
+	if c.Config.CountSoftLimit == 0 || c.Len == nil {
+		return false
+	}
+
+	return c.Len() >= int(c.Config.CountSoftLimit)
 }
 
-func newTrait(b backend, config Config) *trait {
+// Trait is a shared trait, useful to implement ReadWriter.
+type Trait struct {
+	Closed chan struct{}
+
+	DeleteExpired func(before time.Time)
+	Len           func() int
+	EvictOldest   func(fraction float64) int
+
+	Config Config
+	Stat   StatsTracker
+	Log    logTrait
+}
+
+// NewTrait instantiates new Trait.
+func NewTrait(config Config, options ...func(t *Trait)) *Trait {
 	if config.DeleteExpiredAfter == 0 {
 		config.DeleteExpiredAfter = 24 * time.Hour
 	}
@@ -91,54 +128,61 @@ func newTrait(b backend, config Config) *trait {
 		config.TimeToLive = 5 * time.Minute
 	}
 
-	t := &trait{
-		config: config,
-		stat:   config.Stats,
-		closed: make(chan struct{}),
+	t := &Trait{
+		Config: config,
+		Stat:   config.Stats,
+		Closed: make(chan struct{}),
 	}
-	t.logTrait.setup(config.Logger)
+	t.Log.setup(config.Logger)
 
-	if config.Stats != nil {
-		go t.reportItemsCount(b, t.closed)
+	for _, o := range options {
+		o(t)
 	}
 
-	go t.janitor(b, t.closed)
+	if config.Stats != nil && t.Len != nil {
+		go t.reportItemsCount()
+	}
+
+	if t.DeleteExpired != nil || t.EvictOldest != nil {
+		go t.janitor()
+	}
 
 	return t
 }
 
-func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
+// PrepareRead handles cached entry.
+func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found bool) (interface{}, error) {
 	if !found {
-		if c.logDebug != nil {
-			c.logDebug(ctx, "cache miss", "name", c.config.Name)
+		if c.Log.logDebug != nil {
+			c.Log.logDebug(ctx, "cache miss", "name", c.Config.Name)
 		}
 
-		if c.stat != nil {
-			c.stat.Add(ctx, MetricMiss, 1, "name", c.config.Name)
+		if c.Stat != nil {
+			c.Stat.Add(ctx, MetricMiss, 1, "name", c.Config.Name)
 		}
 
 		return nil, ErrNotFound
 	}
 
 	if cacheEntry.E.Before(time.Now()) {
-		if c.logDebug != nil {
-			c.logDebug(ctx, "cache key expired", "name", c.config.Name)
+		if c.Log.logDebug != nil {
+			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
 
-		if c.stat != nil {
-			c.stat.Add(ctx, MetricExpired, 1, "name", c.config.Name)
+		if c.Stat != nil {
+			c.Stat.Add(ctx, MetricExpired, 1, "name", c.Config.Name)
 		}
 
 		return nil, errExpired{entry: cacheEntry}
 	}
 
-	if c.stat != nil {
-		c.stat.Add(ctx, MetricHit, 1, "name", c.config.Name)
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricHit, 1, "name", c.Config.Name)
 	}
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "cache hit",
-			"name", c.config.Name,
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "cache hit",
+			"name", c.Config.Name,
 			"entry", cacheEntry,
 		)
 	}
@@ -146,83 +190,112 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 	return cacheEntry.V, nil
 }
 
-// Config controls cache instance.
-type Config struct {
-	// Logger is an instance of contextualized logger, can be nil.
-	Logger Logger
+// TTL calculates time to live for a new entry.
+func (c *Trait) TTL(ctx context.Context) time.Duration {
+	ttl := TTL(ctx)
+	if ttl == DefaultTTL {
+		ttl = c.Config.TimeToLive
+	}
 
-	// Stats is a metrics collector, can be nil.
-	Stats StatsTracker
+	if c.Config.ExpirationJitter > 0 {
+		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+	}
 
-	// Name is cache instance name, used in stats and logging.
-	Name string
-
-	// TimeToLive is delay before entry expiration, default 5m.
-	TimeToLive time.Duration
-
-	// DeleteExpiredAfter is delay before expired entry is deleted from cache, default 24h.
-	DeleteExpiredAfter time.Duration
-
-	// DeleteExpiredJobInterval is delay between two consecutive cleanups, default 1h.
-	DeleteExpiredJobInterval time.Duration
-
-	// ItemsCountReportInterval is items count metric report interval, default 1m.
-	ItemsCountReportInterval time.Duration
-
-	// ExpirationJitter is a fraction of TTL to randomize, default 0.1.
-	// Use -1 to disable.
-	// If enabled, entry TTL will be randomly altered in bounds of ±(ExpirationJitter * TTL / 2).
-	ExpirationJitter float64
-
-	// HeapInUseSoftLimit sets heap in use threshold when eviction of most expired items will be triggered.
-	//
-	// Eviction is a part of delete expired job, eviction runs at most once per delete expired job and
-	// removes most expired entries up to EvictFraction.
-	HeapInUseSoftLimit uint64
-
-	// CountSoftLimit sets count threshold when eviction of most expired items will be triggered.
-	//
-	// Eviction is a part of delete expired job, eviction runs at most once per delete expired job and
-	// removes most expired entries up to EvictFraction.
-	CountSoftLimit uint64
-
-	// EvictFraction is a fraction (0, 1] of total count of items to be evicted when resource is overused,
-	// default 0.1 (10% of items).
-	EvictFraction float64
+	return ttl
 }
 
-// Use is a functional option to apply configuration.
-func (c Config) Use(cfg *Config) {
-	*cfg = c
+// NotifyWritten collects logs and metrics.
+func (c *Trait) NotifyWritten(ctx context.Context, key []byte, value interface{}, ttl time.Duration) {
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "wrote to cache",
+			"name", c.Config.Name,
+			"key", string(key),
+			"value", value,
+			"ttl", ttl,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricWrite, 1, "name", c.Config.Name)
+	}
 }
 
-type keyString []byte
+// NotifyDeleted collects logs and metrics.
+func (c *Trait) NotifyDeleted(ctx context.Context, key []byte) {
+	if c.Log.logDebug != nil {
+		c.Log.logDebug(ctx, "deleted cache entry",
+			"name", c.Config.Name,
+			"key", string(key),
+		)
+	}
 
-func (ks keyString) MarshalText() ([]byte, error) {
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricDelete, 1, "name", c.Config.Name)
+	}
+}
+
+// NotifyExpiredAll collects logs and metrics.
+func (c *Trait) NotifyExpiredAll(ctx context.Context, start time.Time, cnt int) {
+	if c.Log.logImportant != nil {
+		c.Log.logImportant(ctx, "expired all entries in cache",
+			"name", c.Config.Name,
+			"elapsed", time.Since(start).String(),
+			"count", cnt,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricExpired, float64(cnt), "name", c.Config.Name)
+	}
+}
+
+// NotifyDeletedAll collects logs and metrics.
+func (c *Trait) NotifyDeletedAll(ctx context.Context, start time.Time, cnt int) {
+	if c.Log.logImportant != nil {
+		c.Log.logImportant(ctx, "deleted all entries in cache",
+			"name", c.Config.Name,
+			"elapsed", time.Since(start).String(),
+			"count", cnt,
+		)
+	}
+
+	if c.Stat != nil {
+		c.Stat.Add(ctx, MetricDelete, float64(cnt), "name", c.Config.Name)
+	}
+}
+
+// Key os a key of cached entry.
+type Key []byte
+
+// MarshalText renders bytes as text.
+func (ks Key) MarshalText() ([]byte, error) {
 	return ks, nil
 }
 
-// entry is a cache entry.
-type entry struct {
-	K keyString   `json:"key"`
+// TraitEntry is a cache entry.
+type TraitEntry struct {
+	K Key         `json:"key"`
 	V interface{} `json:"val"`
 	E time.Time   `json:"exp"`
 }
 
-func (e entry) Key() []byte {
+// Key returns entry key.
+func (e TraitEntry) Key() []byte {
 	return e.K
 }
 
-func (e entry) Value() interface{} {
+// Value returns entry value.
+func (e TraitEntry) Value() interface{} {
 	return e.V
 }
 
-func (e entry) ExpireAt() time.Time {
+// ExpireAt returns entry expiration time.
+func (e TraitEntry) ExpireAt() time.Time {
 	return e.E
 }
 
 type errExpired struct {
-	entry *entry
+	entry *TraitEntry
 }
 
 func (e errExpired) Error() string {

@@ -11,6 +11,8 @@ const (
 	MetricHit = "cache_hit"
 	// MetricWrite is a name of a metric to count cache write events.
 	MetricWrite = "cache_write"
+	// MetricDelete is a name of a metric to count cache delete events.
+	MetricDelete = "cache_delete"
 	// MetricItems is a name of a gauge to count number of items in cache.
 	MetricItems = "cache_items"
 

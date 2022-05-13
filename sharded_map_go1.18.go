@@ -9,8 +9,8 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
-	"math/rand"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,13 +30,13 @@ type ShardedMapOf[V any] struct {
 
 type hashedBucketOf[V any] struct {
 	sync.RWMutex
-	data map[uint64]*entryOf[V]
+	data map[uint64]*TraitEntryOf[V]
 }
 
 type shardedMapOf[V any] struct {
 	hashedBuckets [shards]hashedBucketOf[V]
 
-	*traitOf[V]
+	t *TraitOf[V]
 }
 
 // NewShardedMapOf creates an instance of in-memory cache with optional configuration.
@@ -47,7 +47,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 	}
 
 	for i := 0; i < shards; i++ {
-		c.hashedBuckets[i].data = make(map[uint64]*entryOf[V])
+		c.hashedBuckets[i].data = make(map[uint64]*TraitEntryOf[V])
 	}
 
 	cfg := Config{}
@@ -55,10 +55,14 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		option(&cfg)
 	}
 
-	c.traitOf = newTraitOf[V](c, cfg)
+	c.t = NewTraitOf[V](cfg, func(t *Trait) {
+		t.DeleteExpired = c.deleteExpired
+		t.Len = c.Len
+		t.EvictOldest = c.evictOldest
+	})
 
 	runtime.SetFinalizer(C, func(m *ShardedMapOf[V]) {
-		close(m.closed)
+		close(m.t.Closed)
 	})
 
 	return C
@@ -93,7 +97,7 @@ func (c *shardedMapOf[V]) Store(key []byte, val V) {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	b.data[h] = &entryOf[V]{V: val, K: k}
+	b.data[h] = &TraitEntryOf[V]{V: val, K: k}
 }
 
 // Read gets value.
@@ -113,7 +117,7 @@ func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error)
 		found = false
 	}
 
-	v, err := c.prepareRead(ctx, cacheEntry, found)
+	v, err := c.t.PrepareRead(ctx, cacheEntry, found)
 	if err != nil {
 		return val, err
 	}
@@ -128,34 +132,15 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 	b.Lock()
 	defer b.Unlock()
 
-	// ttl := c.config.TimeToLive
-	ttl := TTL(ctx)
-	if ttl == DefaultTTL {
-		ttl = c.config.TimeToLive
-	}
-
-	if c.config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
-	}
+	ttl := c.t.TTL(ctx)
 
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &entryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
+	b.data[h] = &TraitEntryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "wrote to cache",
-			"name", c.config.Name,
-			"key", string(key),
-			"value", v,
-			"ttl", ttl,
-		)
-	}
-
-	if c.stat != nil {
-		c.stat.Add(ctx, MetricWrite, 1, "name", c.config.Name)
-	}
+	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
 }
@@ -177,44 +162,33 @@ func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 
 	delete(b.data, h)
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "deleted cache entry",
-			"name", c.config.Name,
-			"key", string(key),
-		)
-	}
+	c.t.NotifyDeleted(ctx, key)
 
 	return nil
 }
 
 // ExpireAll marks all entries as expired, they can still serve stale cache.
 func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 		b.Lock()
 		for h, v := range b.data {
-			v.E = now
+			v.E = start
 			b.data[h] = v
 			cnt++
 		}
 		b.Unlock()
 	}
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "expired all entries in cache",
-			"name", c.config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyExpiredAll(ctx, start, cnt)
 }
 
 // DeleteAll erases all entries.
 func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -228,30 +202,20 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "deleted all entries in cache",
-			"name", c.config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
-func (c *shardedMapOf[V]) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.Lock()
 		for h, v := range b.data {
-			if v.E.Before(expirationBoundary) {
+			if v.E.Before(before) {
 				delete(b.data, h)
 			}
 		}
 		b.Unlock()
-	}
-
-	if heapInUseOverflow(c.config) || countOverflow(c.config, c.Len) {
-		c.evictOldest()
 	}
 }
 
@@ -325,7 +289,7 @@ func (c *shardedMapLegacyWalkerOf[V]) Walk(walkFn func(e Entry) error) (int, err
 		for _, v := range c.hashedBuckets[i].data {
 			b.RUnlock()
 
-			e := entry{
+			e := TraitEntry{
 				K: v.K,
 				V: v.V,
 				E: v.E,
@@ -369,7 +333,7 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	)
 
 	for {
-		var e entryOf[V]
+		var e TraitEntryOf[V]
 
 		err := decoder.Decode(&e)
 		if err != nil {
@@ -391,4 +355,38 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	}
 
 	return n, nil
+}
+
+func (c *shardedMapOf[V]) evictOldest(evictFraction float64) int {
+	keysCnt := c.Len()
+	entries := make([]evictEntry, 0, keysCnt)
+
+	// Collect all keys and expirations.
+	for i := range c.hashedBuckets {
+		b := &c.hashedBuckets[i]
+
+		b.RLock()
+		for h, i := range b.data {
+			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
+		}
+		b.RUnlock()
+	}
+
+	// Sort entries to put most expired in head.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].expireAt.Before(entries[j].expireAt)
+	})
+
+	evictItems := int(float64(len(entries)) * evictFraction)
+
+	for i := 0; i < evictItems; i++ {
+		h := entries[i].hash
+		b := &c.hashedBuckets[h%shards]
+
+		b.Lock()
+		delete(b.data, h)
+		b.Unlock()
+	}
+
+	return evictItems
 }

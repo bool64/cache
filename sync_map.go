@@ -5,7 +5,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
-	"math/rand"
 	"runtime"
 	"sort"
 	"sync"
@@ -15,6 +14,7 @@ import (
 var (
 	_ ReadWriter = &syncMap{}
 	_ Deleter    = &syncMap{}
+	_ Walker     = &syncMap{}
 )
 
 // SyncMap is an in-memory cache backend. Please use NewSyncMap to create it.
@@ -25,7 +25,7 @@ type SyncMap struct {
 type syncMap struct {
 	data sync.Map
 
-	*trait
+	t *Trait
 }
 
 // NewSyncMap creates an instance of in-memory cache with optional configuration.
@@ -40,10 +40,14 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		option(&cfg)
 	}
 
-	c.trait = newTrait(c, cfg)
+	c.t = NewTrait(cfg, func(t *Trait) {
+		t.DeleteExpired = c.deleteExpired
+		t.Len = c.Len
+		t.EvictOldest = c.evictOldest
+	})
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
-		close(m.closed)
+		close(m.t.Closed)
 	})
 
 	return C
@@ -56,41 +60,22 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 	}
 
 	if cacheEntry, found := c.data.Load(string(key)); found {
-		return c.prepareRead(ctx, cacheEntry.(*entry), true)
+		return c.t.PrepareRead(ctx, cacheEntry.(*TraitEntry), true)
 	}
 
-	return c.prepareRead(ctx, nil, false)
+	return c.t.PrepareRead(ctx, nil, false)
 }
 
 // Write sets value by the key.
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
-	ttl := TTL(ctx)
-	if ttl == DefaultTTL {
-		ttl = c.config.TimeToLive
-	}
-
-	if c.config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
-	}
+	ttl := c.t.TTL(ctx)
 
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	c.data.Store(string(k), &entry{V: v, K: key, E: time.Now().Add(ttl)})
-
-	if c.logDebug != nil {
-		c.logDebug(ctx, "wrote to cache",
-			"name", c.config.Name,
-			"key", string(key),
-			"value", v,
-			"ttl", ttl,
-		)
-	}
-
-	if c.stat != nil {
-		c.stat.Add(ctx, MetricWrite, 1, "name", c.config.Name)
-	}
+	c.data.Store(string(k), &TraitEntry{V: v, K: key, E: time.Now().Add(ttl)})
+	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
 }
@@ -99,42 +84,31 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 	c.data.Delete(string(key))
 
-	if c.logDebug != nil {
-		c.logDebug(ctx, "deleted cache entry",
-			"name", c.config.Name,
-			"key", string(key),
-		)
-	}
+	c.t.NotifyDeleted(ctx, key)
 
 	return nil
 }
 
 // ExpireAll marks all entries as expired, they can still serve stale values.
 func (c *syncMap) ExpireAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
 
-		cacheEntry.E = now
+		cacheEntry.E = start
 		cnt++
 
 		return true
 	})
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "expired all entries in cache",
-			"name", c.config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyExpiredAll(ctx, start, cnt)
 }
 
 // DeleteAll erases all entries.
 func (c *syncMap) DeleteAll(ctx context.Context) {
-	now := time.Now()
+	start := time.Now()
 	cnt := 0
 
 	c.data.Range(func(key, _ interface{}) bool {
@@ -144,28 +118,18 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 		return true
 	})
 
-	if c.logImportant != nil {
-		c.logImportant(ctx, "deleted all entries in cache",
-			"name", c.config.Name,
-			"elapsed", time.Since(now).String(),
-			"count", cnt,
-		)
-	}
+	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
-func (c *syncMap) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *syncMap) deleteExpired(before time.Time) {
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
-		if cacheEntry.E.Before(expirationBoundary) {
+		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
+		if cacheEntry.E.Before(before) {
 			c.data.Delete(key)
 		}
 
 		return true
 	})
-
-	if c.heapInUseOverflow() || c.countOverflow() {
-		c.evictOldest()
-	}
 }
 
 // Len returns number of elements including expired.
@@ -188,7 +152,7 @@ func (c *syncMap) Walk(walkFn func(e Entry) error) (int, error) {
 	var lastErr error
 
 	c.data.Range(func(key, value interface{}) bool {
-		err := walkFn(value.(*entry))
+		err := walkFn(value.(*TraitEntry))
 		if err != nil {
 			lastErr = err
 
@@ -222,7 +186,7 @@ func (c *SyncMap) Dump(w io.Writer) (int, error) {
 func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
-		e       entry
+		e       TraitEntry
 		n       = 0
 	)
 
@@ -246,12 +210,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-func (c *syncMap) evictOldest() {
-	evictFraction := c.config.EvictFraction
-	if evictFraction == 0 {
-		evictFraction = 0.1
-	}
-
+func (c *syncMap) evictOldest(evictFraction float64) int {
 	type en struct {
 		key      string
 		expireAt time.Time
@@ -262,7 +221,7 @@ func (c *syncMap) evictOldest() {
 
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
-		i := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		i := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
 		entries = append(entries, en{expireAt: i.E, key: string(i.K)})
 
 		return true
@@ -275,30 +234,9 @@ func (c *syncMap) evictOldest() {
 
 	evictItems := int(float64(len(entries)) * evictFraction)
 
-	if c.stat != nil {
-		c.stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.config.Name)
-	}
-
 	for i := 0; i < evictItems; i++ {
 		c.data.Delete(entries[i].key)
 	}
-}
 
-func (c *syncMap) heapInUseOverflow() bool {
-	if c.config.HeapInUseSoftLimit == 0 {
-		return false
-	}
-
-	m := runtime.MemStats{}
-	runtime.ReadMemStats(&m)
-
-	return m.HeapInuse >= c.config.HeapInUseSoftLimit
-}
-
-func (c *syncMap) countOverflow() bool {
-	if c.config.CountSoftLimit == 0 {
-		return false
-	}
-
-	return c.Len() >= int(c.config.CountSoftLimit)
+	return evictItems
 }

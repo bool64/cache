@@ -102,7 +102,8 @@ func TestNewShardedMapOf(t *testing.T) {
 	// they are masked with "<ignore-diff>" because they are produced with different goroutines
 	// and can arrive in random order.
 
-	assert.Equal(t, `cache_expired{name="test"} 1
+	assert.Equal(t, `cache_delete{name="test"} 1
+cache_expired{name="test"} 2
 cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())
