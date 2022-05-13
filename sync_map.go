@@ -14,6 +14,7 @@ import (
 var (
 	_ ReadWriter = &syncMap{}
 	_ Deleter    = &syncMap{}
+	_ Walker     = &syncMap{}
 )
 
 // SyncMap is an in-memory cache backend. Please use NewSyncMap to create it.
@@ -39,7 +40,11 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		option(&cfg)
 	}
 
-	c.t = newTrait(c, cfg)
+	c.t = newTrait(cfg, func(t *trait) {
+		t.DeleteExpired = c.deleteExpired
+		t.Len = c.Len
+		t.EvictOldest = c.evictOldest
+	})
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
 		close(m.t.Closed)
@@ -116,19 +121,15 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
-func (c *syncMap) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *syncMap) deleteExpired(before time.Time) {
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
-		if cacheEntry.E.Before(expirationBoundary) {
+		if cacheEntry.E.Before(before) {
 			c.data.Delete(key)
 		}
 
 		return true
 	})
-
-	if c.heapInUseOverflow() || c.countOverflow() {
-		c.evictOldest()
-	}
 }
 
 // Len returns number of elements including expired.
@@ -209,12 +210,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-func (c *syncMap) evictOldest() {
-	evictFraction := c.t.Config.EvictFraction
-	if evictFraction == 0 {
-		evictFraction = 0.1
-	}
-
+func (c *syncMap) evictOldest(evictFraction float64) int {
 	type en struct {
 		key      string
 		expireAt time.Time
@@ -238,30 +234,9 @@ func (c *syncMap) evictOldest() {
 
 	evictItems := int(float64(len(entries)) * evictFraction)
 
-	if c.t.Stat != nil {
-		c.t.Stat.Add(context.Background(), MetricEvict, float64(evictItems), "name", c.t.Config.Name)
-	}
-
 	for i := 0; i < evictItems; i++ {
 		c.data.Delete(entries[i].key)
 	}
-}
 
-func (c *syncMap) heapInUseOverflow() bool {
-	if c.t.Config.HeapInUseSoftLimit == 0 {
-		return false
-	}
-
-	m := runtime.MemStats{}
-	runtime.ReadMemStats(&m)
-
-	return m.HeapInuse >= c.t.Config.HeapInUseSoftLimit
-}
-
-func (c *syncMap) countOverflow() bool {
-	if c.t.Config.CountSoftLimit == 0 {
-		return false
-	}
-
-	return c.Len() >= int(c.t.Config.CountSoftLimit)
+	return evictItems
 }

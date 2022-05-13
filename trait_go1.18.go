@@ -12,10 +12,10 @@ type traitOf[V any] struct {
 	trait
 }
 
-func newTraitOf[V any](b backend, config Config) *traitOf[V] {
+func newTraitOf[V any](config Config, options ...func(t *trait)) *traitOf[V] {
 	t := &traitOf[V]{}
 
-	t.trait = *newTrait(b, config)
+	t.trait = *newTrait(config, options...)
 
 	return t
 }

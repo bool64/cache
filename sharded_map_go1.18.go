@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -54,7 +55,11 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		option(&cfg)
 	}
 
-	c.t = newTraitOf[V](c, cfg)
+	c.t = newTraitOf[V](cfg, func(t *trait) {
+		t.DeleteExpired = c.deleteExpired
+		t.Len = c.Len
+		t.EvictOldest = c.evictOldest
+	})
 
 	runtime.SetFinalizer(C, func(m *ShardedMapOf[V]) {
 		close(m.t.Closed)
@@ -200,21 +205,17 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
-func (c *shardedMapOf[V]) deleteExpiredBefore(expirationBoundary time.Time) {
+func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.Lock()
 		for h, v := range b.data {
-			if v.E.Before(expirationBoundary) {
+			if v.E.Before(before) {
 				delete(b.data, h)
 			}
 		}
 		b.Unlock()
-	}
-
-	if heapInUseOverflow(c.t.Config) || countOverflow(c.t.Config, c.Len) {
-		c.evictOldest()
 	}
 }
 
@@ -354,4 +355,38 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	}
 
 	return n, nil
+}
+
+func (c *shardedMapOf[V]) evictOldest(evictFraction float64) int {
+	keysCnt := c.Len()
+	entries := make([]evictEntry, 0, keysCnt)
+
+	// Collect all keys and expirations.
+	for i := range c.hashedBuckets {
+		b := &c.hashedBuckets[i]
+
+		b.RLock()
+		for h, i := range b.data {
+			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
+		}
+		b.RUnlock()
+	}
+
+	// Sort entries to put most expired in head.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].expireAt.Before(entries[j].expireAt)
+	})
+
+	evictItems := int(float64(len(entries)) * evictFraction)
+
+	for i := 0; i < evictItems; i++ {
+		h := entries[i].hash
+		b := &c.hashedBuckets[h%shards]
+
+		b.Lock()
+		delete(b.data, h)
+		b.Unlock()
+	}
+
+	return evictItems
 }

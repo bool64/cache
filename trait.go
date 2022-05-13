@@ -3,35 +3,36 @@ package cache
 import (
 	"context"
 	"math/rand"
+	"runtime"
 	"time"
 )
 
-func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
+func (c *trait) reportItemsCount() {
 	for {
 		interval := c.Config.ItemsCountReportInterval
 
 		select {
 		case <-time.After(interval):
-			count := b.Len()
+			count := c.Len()
 
 			if c.Log.logDebug != nil {
 				c.Log.logDebug(context.Background(), "cache items count",
 					"name", c.Config.Name,
-					"count", b.Len(),
+					"count", c.Len(),
 				)
 			}
 
 			if c.Stat != nil {
 				c.Stat.Set(context.Background(), MetricItems, float64(count), "name", c.Config.Name)
 			}
-		case <-closed:
+		case <-c.Closed:
 			if c.Log.logDebug != nil {
 				c.Log.logDebug(context.Background(), "closing cache items counter goroutine",
 					"name", c.Config.Name)
 			}
 
 			if c.Stat != nil {
-				c.Stat.Set(context.Background(), MetricItems, float64(b.Len()), "name", c.Config.Name)
+				c.Stat.Set(context.Background(), MetricItems, float64(c.Len()), "name", c.Config.Name)
 			}
 
 			return
@@ -39,15 +40,30 @@ func (c *trait) reportItemsCount(b backend, closed chan struct{}) {
 	}
 }
 
-func (c *trait) janitor(b backend, closed chan struct{}) {
+func (c *trait) janitor() {
 	for {
 		interval := c.Config.DeleteExpiredJobInterval
 
 		select {
 		case <-time.After(interval):
-			expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
-			b.deleteExpiredBefore(expirationBoundary)
-		case <-closed:
+			if c.DeleteExpired != nil {
+				expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
+				c.DeleteExpired(expirationBoundary)
+			}
+
+			if c.EvictOldest != nil && (c.heapInUseOverflow() || c.countOverflow()) {
+				frac := c.Config.EvictFraction
+				if frac == 0 {
+					frac = 0.1
+				}
+
+				cnt := c.EvictOldest(frac)
+
+				if c.Stat != nil {
+					c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
+				}
+			}
+		case <-c.Closed:
 			if c.Log.logDebug != nil {
 				c.Log.logDebug(context.Background(), "closing cache janitor",
 					"name", c.Config.Name)
@@ -58,20 +74,38 @@ func (c *trait) janitor(b backend, closed chan struct{}) {
 	}
 }
 
+func (c *trait) heapInUseOverflow() bool {
+	if c.Config.HeapInUseSoftLimit == 0 {
+		return false
+	}
+
+	m := runtime.MemStats{}
+	runtime.ReadMemStats(&m)
+
+	return m.HeapInuse >= c.Config.HeapInUseSoftLimit
+}
+
+func (c *trait) countOverflow() bool {
+	if c.Config.CountSoftLimit == 0 || c.Len == nil {
+		return false
+	}
+
+	return c.Len() >= int(c.Config.CountSoftLimit)
+}
+
 type trait struct {
 	Closed chan struct{}
+
+	DeleteExpired func(before time.Time)
+	Len           func() int
+	EvictOldest   func(fraction float64) int
 
 	Config Config
 	Stat   StatsTracker
 	Log    logTrait
 }
 
-type backend interface {
-	Len() int
-	deleteExpiredBefore(t time.Time)
-}
-
-func newTrait(b backend, config Config) *trait {
+func newTrait(config Config, options ...func(t *trait)) *trait {
 	if config.DeleteExpiredAfter == 0 {
 		config.DeleteExpiredAfter = 24 * time.Hour
 	}
@@ -99,11 +133,17 @@ func newTrait(b backend, config Config) *trait {
 	}
 	t.Log.setup(config.Logger)
 
-	if config.Stats != nil {
-		go t.reportItemsCount(b, t.Closed)
+	for _, o := range options {
+		o(t)
 	}
 
-	go t.janitor(b, t.Closed)
+	if config.Stats != nil && t.Len != nil {
+		go t.reportItemsCount()
+	}
+
+	if t.DeleteExpired != nil || t.EvictOldest != nil {
+		go t.janitor()
+	}
 
 	return t
 }
