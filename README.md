@@ -9,6 +9,16 @@ This library defines cache interfaces and provides in-memory implementations.
 ![Code lines](https://sloc.xyz/github/bool64/cache/?category=code)
 ![Comments](https://sloc.xyz/github/bool64/cache/?category=comments)
 
+## Why?
+
+There are a few libraries that provide in-memory cache already, why another one?
+
+This library addresses additional practical issues that are not usually covered by key-value storage concerns. It helps
+to improve performance and resiliency by gentle handling of cache misses and allows for comprehensive observability with 
+fine control of caching behavior.
+
+Please check this [blog post](https://dev.to/vearutop/implementing-robust-in-memory-cache-with-go-196e) for more details.
+
 ## Failover Cache
 
 [`Failover`](https://pkg.go.dev/github.com/bool64/cache#Failover) is a cache frontend to manage cache updates in a
