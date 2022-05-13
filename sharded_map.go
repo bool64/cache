@@ -23,7 +23,7 @@ const shards = 128
 
 type hashedBucket struct {
 	sync.RWMutex
-	data map[uint64]*entry
+	data map[uint64]*TraitEntry
 }
 
 // ShardedMap is an in-memory cache backend. Please use NewShardedMap to create it.
@@ -34,7 +34,7 @@ type ShardedMap struct {
 type shardedMap struct {
 	hashedBuckets [shards]hashedBucket
 
-	t *trait
+	t *Trait
 }
 
 // NewShardedMap creates an instance of in-memory cache with optional configuration.
@@ -45,7 +45,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 	}
 
 	for i := 0; i < shards; i++ {
-		c.hashedBuckets[i].data = make(map[uint64]*entry)
+		c.hashedBuckets[i].data = make(map[uint64]*TraitEntry)
 	}
 
 	cfg := Config{}
@@ -53,7 +53,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 		option(&cfg)
 	}
 
-	c.t = newTrait(cfg, func(t *trait) {
+	c.t = NewTrait(cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.EvictOldest = c.evictOldest
@@ -95,7 +95,7 @@ func (c *shardedMap) Store(key []byte, val interface{}) {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	b.data[h] = &entry{V: val, K: k}
+	b.data[h] = &TraitEntry{V: val, K: k}
 }
 
 // Read gets value.
@@ -115,7 +115,7 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 		found = false
 	}
 
-	return c.t.prepareRead(ctx, cacheEntry, found)
+	return c.t.PrepareRead(ctx, cacheEntry, found)
 }
 
 // Write sets value by the key.
@@ -131,7 +131,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &entry{V: v, K: key, E: time.Now().Add(ttl)}
+	b.data[h] = &TraitEntry{V: v, K: key, E: time.Now().Add(ttl)}
 
 	c.t.NotifyWritten(ctx, key, v, ttl)
 
@@ -275,7 +275,7 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 	)
 
 	for {
-		var e entry
+		var e TraitEntry
 
 		err := decoder.Decode(&e)
 		if err != nil {

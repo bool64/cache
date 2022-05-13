@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (c *trait) reportItemsCount() {
+func (c *Trait) reportItemsCount() {
 	for {
 		interval := c.Config.ItemsCountReportInterval
 
@@ -40,7 +40,7 @@ func (c *trait) reportItemsCount() {
 	}
 }
 
-func (c *trait) janitor() {
+func (c *Trait) janitor() {
 	for {
 		interval := c.Config.DeleteExpiredJobInterval
 
@@ -74,7 +74,7 @@ func (c *trait) janitor() {
 	}
 }
 
-func (c *trait) heapInUseOverflow() bool {
+func (c *Trait) heapInUseOverflow() bool {
 	if c.Config.HeapInUseSoftLimit == 0 {
 		return false
 	}
@@ -85,7 +85,7 @@ func (c *trait) heapInUseOverflow() bool {
 	return m.HeapInuse >= c.Config.HeapInUseSoftLimit
 }
 
-func (c *trait) countOverflow() bool {
+func (c *Trait) countOverflow() bool {
 	if c.Config.CountSoftLimit == 0 || c.Len == nil {
 		return false
 	}
@@ -93,7 +93,8 @@ func (c *trait) countOverflow() bool {
 	return c.Len() >= int(c.Config.CountSoftLimit)
 }
 
-type trait struct {
+// Trait is a shared trait, useful to implement ReadWriter.
+type Trait struct {
 	Closed chan struct{}
 
 	DeleteExpired func(before time.Time)
@@ -105,7 +106,8 @@ type trait struct {
 	Log    logTrait
 }
 
-func newTrait(config Config, options ...func(t *trait)) *trait {
+// NewTrait instantiates new Trait.
+func NewTrait(config Config, options ...func(t *Trait)) *Trait {
 	if config.DeleteExpiredAfter == 0 {
 		config.DeleteExpiredAfter = 24 * time.Hour
 	}
@@ -126,7 +128,7 @@ func newTrait(config Config, options ...func(t *trait)) *trait {
 		config.TimeToLive = 5 * time.Minute
 	}
 
-	t := &trait{
+	t := &Trait{
 		Config: config,
 		Stat:   config.Stats,
 		Closed: make(chan struct{}),
@@ -148,7 +150,8 @@ func newTrait(config Config, options ...func(t *trait)) *trait {
 	return t
 }
 
-func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) (interface{}, error) {
+// PrepareRead handles cached entry.
+func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found bool) (interface{}, error) {
 	if !found {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache miss", "name", c.Config.Name)
@@ -187,7 +190,8 @@ func (c *trait) prepareRead(ctx context.Context, cacheEntry *entry, found bool) 
 	return cacheEntry.V, nil
 }
 
-func (c *trait) TTL(ctx context.Context) time.Duration {
+// TTL calculates time to live for a new entry.
+func (c *Trait) TTL(ctx context.Context) time.Duration {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
 		ttl = c.Config.TimeToLive
@@ -200,7 +204,8 @@ func (c *trait) TTL(ctx context.Context) time.Duration {
 	return ttl
 }
 
-func (c *trait) NotifyWritten(ctx context.Context, key []byte, value interface{}, ttl time.Duration) {
+// NotifyWritten collects logs and metrics.
+func (c *Trait) NotifyWritten(ctx context.Context, key []byte, value interface{}, ttl time.Duration) {
 	if c.Log.logDebug != nil {
 		c.Log.logDebug(ctx, "wrote to cache",
 			"name", c.Config.Name,
@@ -215,7 +220,8 @@ func (c *trait) NotifyWritten(ctx context.Context, key []byte, value interface{}
 	}
 }
 
-func (c *trait) NotifyDeleted(ctx context.Context, key []byte) {
+// NotifyDeleted collects logs and metrics.
+func (c *Trait) NotifyDeleted(ctx context.Context, key []byte) {
 	if c.Log.logDebug != nil {
 		c.Log.logDebug(ctx, "deleted cache entry",
 			"name", c.Config.Name,
@@ -228,7 +234,8 @@ func (c *trait) NotifyDeleted(ctx context.Context, key []byte) {
 	}
 }
 
-func (c *trait) NotifyExpiredAll(ctx context.Context, start time.Time, cnt int) {
+// NotifyExpiredAll collects logs and metrics.
+func (c *Trait) NotifyExpiredAll(ctx context.Context, start time.Time, cnt int) {
 	if c.Log.logImportant != nil {
 		c.Log.logImportant(ctx, "expired all entries in cache",
 			"name", c.Config.Name,
@@ -242,7 +249,8 @@ func (c *trait) NotifyExpiredAll(ctx context.Context, start time.Time, cnt int) 
 	}
 }
 
-func (c *trait) NotifyDeletedAll(ctx context.Context, start time.Time, cnt int) {
+// NotifyDeletedAll collects logs and metrics.
+func (c *Trait) NotifyDeletedAll(ctx context.Context, start time.Time, cnt int) {
 	if c.Log.logImportant != nil {
 		c.Log.logImportant(ctx, "deleted all entries in cache",
 			"name", c.Config.Name,
@@ -256,33 +264,38 @@ func (c *trait) NotifyDeletedAll(ctx context.Context, start time.Time, cnt int) 
 	}
 }
 
-type keyString []byte
+// Key os a key of cached entry.
+type Key []byte
 
-func (ks keyString) MarshalText() ([]byte, error) {
+// MarshalText renders bytes as text.
+func (ks Key) MarshalText() ([]byte, error) {
 	return ks, nil
 }
 
-// entry is a cache entry.
-type entry struct {
-	K keyString   `json:"key"`
+// TraitEntry is a cache entry.
+type TraitEntry struct {
+	K Key         `json:"key"`
 	V interface{} `json:"val"`
 	E time.Time   `json:"exp"`
 }
 
-func (e entry) Key() []byte {
+// Key returns entry key.
+func (e TraitEntry) Key() []byte {
 	return e.K
 }
 
-func (e entry) Value() interface{} {
+// Value returns entry value.
+func (e TraitEntry) Value() interface{} {
 	return e.V
 }
 
-func (e entry) ExpireAt() time.Time {
+// ExpireAt returns entry expiration time.
+func (e TraitEntry) ExpireAt() time.Time {
 	return e.E
 }
 
 type errExpired struct {
-	entry *entry
+	entry *TraitEntry
 }
 
 func (e errExpired) Error() string {

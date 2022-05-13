@@ -25,7 +25,7 @@ type SyncMap struct {
 type syncMap struct {
 	data sync.Map
 
-	t *trait
+	t *Trait
 }
 
 // NewSyncMap creates an instance of in-memory cache with optional configuration.
@@ -40,7 +40,7 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		option(&cfg)
 	}
 
-	c.t = newTrait(cfg, func(t *trait) {
+	c.t = NewTrait(cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.EvictOldest = c.evictOldest
@@ -60,10 +60,10 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 	}
 
 	if cacheEntry, found := c.data.Load(string(key)); found {
-		return c.t.prepareRead(ctx, cacheEntry.(*entry), true)
+		return c.t.PrepareRead(ctx, cacheEntry.(*TraitEntry), true)
 	}
 
-	return c.t.prepareRead(ctx, nil, false)
+	return c.t.PrepareRead(ctx, nil, false)
 }
 
 // Write sets value by the key.
@@ -74,7 +74,7 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	c.data.Store(string(k), &entry{V: v, K: key, E: time.Now().Add(ttl)})
+	c.data.Store(string(k), &TraitEntry{V: v, K: key, E: time.Now().Add(ttl)})
 	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
@@ -95,7 +95,7 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
 
 		cacheEntry.E = start
 		cnt++
@@ -123,7 +123,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 
 func (c *syncMap) deleteExpired(before time.Time) {
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
 		if cacheEntry.E.Before(before) {
 			c.data.Delete(key)
 		}
@@ -152,7 +152,7 @@ func (c *syncMap) Walk(walkFn func(e Entry) error) (int, error) {
 	var lastErr error
 
 	c.data.Range(func(key, value interface{}) bool {
-		err := walkFn(value.(*entry))
+		err := walkFn(value.(*TraitEntry))
 		if err != nil {
 			lastErr = err
 
@@ -186,7 +186,7 @@ func (c *SyncMap) Dump(w io.Writer) (int, error) {
 func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	var (
 		decoder = gob.NewDecoder(r)
-		e       entry
+		e       TraitEntry
 		n       = 0
 	)
 
@@ -221,7 +221,7 @@ func (c *syncMap) evictOldest(evictFraction float64) int {
 
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
-		i := value.(*entry) // nolint // Panic on type assertion failure is fine here.
+		i := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
 		entries = append(entries, en{expireAt: i.E, key: string(i.K)})
 
 		return true

@@ -30,13 +30,13 @@ type ShardedMapOf[V any] struct {
 
 type hashedBucketOf[V any] struct {
 	sync.RWMutex
-	data map[uint64]*entryOf[V]
+	data map[uint64]*TraitEntryOf[V]
 }
 
 type shardedMapOf[V any] struct {
 	hashedBuckets [shards]hashedBucketOf[V]
 
-	t *traitOf[V]
+	t *TraitOf[V]
 }
 
 // NewShardedMapOf creates an instance of in-memory cache with optional configuration.
@@ -47,7 +47,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 	}
 
 	for i := 0; i < shards; i++ {
-		c.hashedBuckets[i].data = make(map[uint64]*entryOf[V])
+		c.hashedBuckets[i].data = make(map[uint64]*TraitEntryOf[V])
 	}
 
 	cfg := Config{}
@@ -55,7 +55,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		option(&cfg)
 	}
 
-	c.t = newTraitOf[V](cfg, func(t *trait) {
+	c.t = NewTraitOf[V](cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.EvictOldest = c.evictOldest
@@ -97,7 +97,7 @@ func (c *shardedMapOf[V]) Store(key []byte, val V) {
 	k := make([]byte, len(key))
 	copy(k, key)
 
-	b.data[h] = &entryOf[V]{V: val, K: k}
+	b.data[h] = &TraitEntryOf[V]{V: val, K: k}
 }
 
 // Read gets value.
@@ -117,7 +117,7 @@ func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error)
 		found = false
 	}
 
-	v, err := c.t.prepareRead(ctx, cacheEntry, found)
+	v, err := c.t.PrepareRead(ctx, cacheEntry, found)
 	if err != nil {
 		return val, err
 	}
@@ -138,7 +138,7 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &entryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
+	b.data[h] = &TraitEntryOf[V]{V: v, K: key, E: time.Now().Add(ttl)}
 
 	c.t.NotifyWritten(ctx, key, v, ttl)
 
@@ -289,7 +289,7 @@ func (c *shardedMapLegacyWalkerOf[V]) Walk(walkFn func(e Entry) error) (int, err
 		for _, v := range c.hashedBuckets[i].data {
 			b.RUnlock()
 
-			e := entry{
+			e := TraitEntry{
 				K: v.K,
 				V: v.V,
 				E: v.E,
@@ -333,7 +333,7 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	)
 
 	for {
-		var e entryOf[V]
+		var e TraitEntryOf[V]
 
 		err := decoder.Decode(&e)
 		if err != nil {

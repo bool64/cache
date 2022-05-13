@@ -8,19 +8,22 @@ import (
 	"time"
 )
 
-type traitOf[V any] struct {
-	trait
+// TraitOf is a parametrized shared trait, useful to implement ReadWriterOf.
+type TraitOf[V any] struct {
+	Trait
 }
 
-func newTraitOf[V any](config Config, options ...func(t *trait)) *traitOf[V] {
-	t := &traitOf[V]{}
+// NewTraitOf instantiates new TraitOf.
+func NewTraitOf[V any](config Config, options ...func(t *Trait)) *TraitOf[V] {
+	t := &TraitOf[V]{}
 
-	t.trait = *newTrait(config, options...)
+	t.Trait = *NewTrait(config, options...)
 
 	return t
 }
 
-func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], found bool) (v V, err error) {
+// PrepareRead handles cached entry.
+func (c *TraitOf[V]) PrepareRead(ctx context.Context, cacheEntry *TraitEntryOf[V], found bool) (v V, err error) {
 	if !found {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache miss", "name", c.Config.Name)
@@ -59,7 +62,8 @@ func (c *traitOf[V]) prepareRead(ctx context.Context, cacheEntry *entryOf[V], fo
 	return cacheEntry.V, nil
 }
 
-func (c *traitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl time.Duration) {
+// NotifyWritten collects logs and metrics.
+func (c *TraitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl time.Duration) {
 	if c.Log.logDebug != nil {
 		c.Log.logDebug(ctx, "wrote to cache",
 			"name", c.Config.Name,
@@ -74,29 +78,32 @@ func (c *traitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl
 	}
 }
 
-// entry is a cache entry.
-type entryOf[V any] struct {
-	K keyString `json:"key"`
+// TraitEntryOf is a cache entry.
+type TraitEntryOf[V any] struct {
+	K Key       `json:"key"`
 	V V         `json:"val"`
 	E time.Time `json:"exp"`
 }
 
-func (e entryOf[V]) Key() []byte {
+// Key returns entry key.
+func (e TraitEntryOf[V]) Key() []byte {
 	return e.K
 }
 
-func (e entryOf[V]) Value() V {
+// Value returns entry value.
+func (e TraitEntryOf[V]) Value() V {
 	return e.V
 }
 
-func (e entryOf[V]) ExpireAt() time.Time {
+// ExpireAt returns entry expiration time.
+func (e TraitEntryOf[V]) ExpireAt() time.Time {
 	return e.E
 }
 
 var _ ErrWithExpiredItemOf[any] = errExpiredOf[any]{}
 
 type errExpiredOf[V any] struct {
-	entry *entryOf[V]
+	entry *TraitEntryOf[V]
 }
 
 func (e errExpiredOf[V]) Error() string {
