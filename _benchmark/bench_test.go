@@ -11,9 +11,9 @@ import (
 )
 
 func BenchmarkConcurrentBaseline(b *testing.B) {
-	var base []bench.Runner
+	var runners []bench.Runner
 
-	base = append(base, bench.Baseline...)
+	runners = append(runners, bench.Baseline...)
 
 	enc := cache.BinaryUnmarshaler(func(data []byte) (encoding.BinaryMarshaler, error) {
 		v := bench.SmallCachedValue{}
@@ -22,7 +22,7 @@ func BenchmarkConcurrentBaseline(b *testing.B) {
 		return v, err
 	})
 
-	base = append(base,
+	runners = append(runners,
 		benchmark.RistrettoBaseline{},
 		benchmark.XsyncBaseline{},
 		benchmark.PatrickmnBaseline{},
@@ -32,26 +32,41 @@ func BenchmarkConcurrentBaseline(b *testing.B) {
 	)
 
 	bench.Concurrently(b, []bench.Scenario{
-		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: base},                     // Fastest single-threaded mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: base}, // Fastest mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: base},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: base},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: base},
-		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: base}, // Slowest mode.
+		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: runners},                     // Fastest single-threaded mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: runners}, // Fastest mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners},
+		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners}, // Slowest mode.
 	})
 }
 
 func BenchmarkConcurrentFailover(b *testing.B) {
-	var base []bench.Runner
+	var runners []bench.Runner
 
-	base = append(base, bench.Failovers...)
+	runners = append(runners, bench.Failovers...)
 
 	bench.Concurrently(b, []bench.Scenario{
-		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: base},                     // Fastest single-threaded mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: base}, // Fastest mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: base},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: base},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: base},
-		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: base}, // Slowest mode.
+		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: runners},                     // Fastest single-threaded mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: runners}, // Fastest mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners},
+		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners}, // Slowest mode.
+	})
+}
+
+func BenchmarkConcurrentReadWriter(b *testing.B) {
+	var runners []bench.Runner
+
+	runners = append(runners, bench.ReadWriters...)
+
+	bench.Concurrently(b, []bench.Scenario{
+		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: runners},                     // Fastest single-threaded mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: runners}, // Fastest mode.
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: runners},
+		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners},
+		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners}, // Slowest mode.
 	})
 }

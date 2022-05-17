@@ -200,3 +200,9 @@ context was used, background processing would have been cancelled once parent HT
 update failure.
 
 Detached context makes background job continue even after the original context was legitimately closed.  
+
+## Performance
+
+`Failover` cache adds some overhead, but overall performance is still good (especially for IO-bound applications).
+
+Please check detailed [benchmarks](./_benchmark/README.md).
