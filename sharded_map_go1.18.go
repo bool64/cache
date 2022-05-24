@@ -8,13 +8,12 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"hash/maphash"
 	"io"
 	"runtime"
 	"sort"
 	"sync"
 	"time"
-
-	"github.com/cespare/xxhash/v2"
 )
 
 var (
@@ -34,6 +33,7 @@ type hashedBucketOf[V any] struct {
 }
 
 type shardedMapOf[V any] struct {
+	seed          maphash.Seed
 	hashedBuckets [shards]hashedBucketOf[V]
 
 	t *TraitOf[V]
@@ -45,6 +45,8 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 	C := &ShardedMapOf[V]{
 		shardedMapOf: c,
 	}
+
+	c.seed = maphash.MakeSeed()
 
 	for i := 0; i < shards; i++ {
 		c.hashedBuckets[i].data = make(map[uint64]*TraitEntryOf[V])
@@ -72,7 +74,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (c *shardedMapOf[V]) Load(key []byte) (val V, loaded bool) {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
 	defer b.RUnlock()
@@ -88,7 +90,7 @@ func (c *shardedMapOf[V]) Load(key []byte) (val V, loaded bool) {
 
 // Store sets the value for a key.
 func (c *shardedMapOf[V]) Store(key []byte, val V) {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
 	defer b.Unlock()
@@ -106,7 +108,7 @@ func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error)
 		return val, ErrNotFound
 	}
 
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
 	cacheEntry, found := b.data[h]
@@ -127,7 +129,7 @@ func (c *shardedMapOf[V]) Read(ctx context.Context, key []byte) (val V, _ error)
 
 // Write sets value by the key.
 func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
-	h := xxhash.Sum64(k)
+	h := maphash.Bytes(c.seed, k)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
 	defer b.Unlock()
@@ -149,7 +151,7 @@ func (c *shardedMapOf[V]) Write(ctx context.Context, k []byte, v V) error {
 //
 // It fails with ErrNotFound if key does not exist.
 func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 
 	b.Lock()
@@ -344,7 +346,7 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 			return n, err
 		}
 
-		h := xxhash.Sum64(e.K)
+		h := maphash.Bytes(c.seed, e.K)
 		b := &c.hashedBuckets[h%shards]
 
 		b.Lock()
