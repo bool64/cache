@@ -8,6 +8,7 @@ require (
 	github.com/bool64/stats v0.2.2
 	github.com/stretchr/testify v1.7.1
 	github.com/swaggest/assertjson v1.7.0
+	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf
 )
 
 require (
@@ -24,3 +25,5 @@ require (
 	golang.org/x/sys v0.0.0-20220405052023-b1e9470b6e64 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
+
+replace golang.org/x/exp => /Users/vearutop/gohack/golang.org/x/exp
