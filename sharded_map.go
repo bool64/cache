@@ -5,13 +5,12 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"hash/maphash"
 	"io"
 	"runtime"
 	"sort"
 	"sync"
 	"time"
-
-	"github.com/cespare/xxhash/v2"
 )
 
 var (
@@ -32,6 +31,7 @@ type ShardedMap struct {
 }
 
 type shardedMap struct {
+	seed          maphash.Seed
 	hashedBuckets [shards]hashedBucket
 
 	t *Trait
@@ -43,6 +43,8 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 	C := &ShardedMap{
 		shardedMap: c,
 	}
+
+	c.seed = maphash.MakeSeed()
 
 	for i := 0; i < shards; i++ {
 		c.hashedBuckets[i].data = make(map[uint64]*TraitEntry)
@@ -70,7 +72,7 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (c *shardedMap) Load(key []byte) (interface{}, bool) {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
 	defer b.RUnlock()
@@ -86,7 +88,7 @@ func (c *shardedMap) Load(key []byte) (interface{}, bool) {
 
 // Store sets the value for a key.
 func (c *shardedMap) Store(key []byte, val interface{}) {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
 	defer b.Unlock()
@@ -104,7 +106,7 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 		return nil, ErrNotFound
 	}
 
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 	b.RLock()
 	cacheEntry, found := b.data[h]
@@ -120,7 +122,7 @@ func (c *shardedMap) Read(ctx context.Context, key []byte) (interface{}, error) 
 
 // Write sets value by the key.
 func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
-	h := xxhash.Sum64(k)
+	h := maphash.Bytes(c.seed, k)
 	b := &c.hashedBuckets[h%shards]
 	b.Lock()
 	defer b.Unlock()
@@ -142,7 +144,7 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 //
 // It fails with ErrNotFound if key does not exist.
 func (c *shardedMap) Delete(ctx context.Context, key []byte) error {
-	h := xxhash.Sum64(key)
+	h := maphash.Bytes(c.seed, key)
 	b := &c.hashedBuckets[h%shards]
 
 	b.Lock()
@@ -286,7 +288,7 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 			return n, err
 		}
 
-		h := xxhash.Sum64(e.K)
+		h := maphash.Bytes(c.seed, e.K)
 		b := &c.hashedBuckets[h%shards]
 
 		b.Lock()
