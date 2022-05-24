@@ -25,5 +25,3 @@ require (
 	golang.org/x/sys v0.0.0-20220405052023-b1e9470b6e64 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
-
-replace golang.org/x/exp => /Users/vearutop/gohack/golang.org/x/exp
