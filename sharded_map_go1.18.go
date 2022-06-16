@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	_ ReadWriterOf[any] = &shardedMapOf[any]{}
-	_ Deleter           = &shardedMapOf[any]{}
-	_ WalkerOf[any]     = &shardedMapOf[any]{}
+	_ ReadWriterOff[any] = &shardedMapOf[any]{}
+	_ Deleter            = &shardedMapOf[any]{}
+	_ WalkerOf[any]      = &shardedMapOf[any]{}
 )
 
 // ShardedMapOf is an in-memory cache backend. Please use NewShardedMapOf to create it.

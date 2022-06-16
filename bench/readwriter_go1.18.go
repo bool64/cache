@@ -13,11 +13,11 @@ import (
 	"github.com/bool64/cache"
 )
 
-// ReadWriterOfRunner creates benchmark runner from cache.ReadWriterOf.
+// ReadWriterOfRunner creates benchmark runner from cache.ReadWriterOff.
 type ReadWriterOfRunner struct {
-	F func() cache.ReadWriterOf[SmallCachedValue]
+	F func() cache.ReadWriterOff[SmallCachedValue]
 
-	RW          cache.ReadWriterOf[SmallCachedValue]
+	RW          cache.ReadWriterOff[SmallCachedValue]
 	D           cache.Deleter
 	Cardinality int
 }
