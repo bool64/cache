@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TraitOf is a parametrized shared trait, useful to implement ReadWriterOf.
+// TraitOf is a parametrized shared trait, useful to implement ReadWriterOff.
 type TraitOf[V any] struct {
 	Trait
 }

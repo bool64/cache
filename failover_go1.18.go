@@ -18,7 +18,7 @@ type FailoverConfigOf[V any] struct {
 	Name string
 
 	// Backend is a cache instance, ShardedMap created by default.
-	Backend ReadWriterOf[V]
+	Backend ReadWriterOff[V]
 
 	// BackendConfig is a configuration for ShardedMap cache instance if Backend is not provided.
 	BackendConfig Config
@@ -67,7 +67,7 @@ type FailoverOf[V any] struct {
 	// Errors caches errors of failed updates.
 	Errors *ShardedMapOf[error]
 
-	backend  ReadWriterOf[V]
+	backend  ReadWriterOff[V]
 	lock     sync.Mutex          // Securing keyLocks
 	keyLocks map[string]*klOf[V] // Preventing update concurrency per key
 	config   FailoverConfigOf[V]

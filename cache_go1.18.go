@@ -20,8 +20,8 @@ type WriterOf[V any] interface {
 	Write(ctx context.Context, key []byte, value V) error
 }
 
-// ReadWriterOf reads from and writes to cache.
-type ReadWriterOf[V any] interface {
+// ReadWriterOff reads from and writes to cache.
+type ReadWriterOff[V any] interface {
 	ReaderOf[V]
 	WriterOf[V]
 }

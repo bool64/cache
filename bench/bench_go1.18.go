@@ -7,13 +7,13 @@ import "github.com/bool64/cache"
 
 func init() {
 	Failovers = append(Failovers,
-		FailoverOf{F: func() cache.ReadWriterOf[SmallCachedValue] {
+		FailoverOf{F: func() cache.ReadWriterOff[SmallCachedValue] {
 			return cache.NewShardedMapOf[SmallCachedValue]()
 		}},
 	)
 
 	ReadWriters = append(ReadWriters,
-		ReadWriterOfRunner{F: func() cache.ReadWriterOf[SmallCachedValue] {
+		ReadWriterOfRunner{F: func() cache.ReadWriterOff[SmallCachedValue] {
 			return cache.NewShardedMapOf[SmallCachedValue]()
 		}},
 	)

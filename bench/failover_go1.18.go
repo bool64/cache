@@ -15,7 +15,7 @@ import (
 
 // FailoverOf is a benchmark runner.
 type FailoverOf struct {
-	F func() cache.ReadWriterOf[SmallCachedValue]
+	F func() cache.ReadWriterOff[SmallCachedValue]
 
 	C           *cache.FailoverOf[SmallCachedValue]
 	D           cache.Deleter
