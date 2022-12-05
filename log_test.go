@@ -1,4 +1,4 @@
-package cache // nolint:testpackage // Testing internals.
+package cache //nolint:testpackage // Testing internals.
 
 import (
 	"context"

@@ -318,7 +318,7 @@ func (f *Failover) doBuild(
 	key []byte,
 	value interface{},
 	buildFunc func(ctx context.Context) (interface{}, error),
-) (interface{}, error) { // nolint:dupl // Non-generic API is different.
+) (interface{}, error) { //nolint:dupl // Non-generic API is different.
 	if f.stat != nil {
 		defer func() {
 			f.stat.Add(ctx, MetricBuild, 1, "name", f.config.Name)

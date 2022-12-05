@@ -1,4 +1,4 @@
-package cache // nolint:testpackage
+package cache //nolint:testpackage
 
 import (
 	"context"
@@ -164,6 +164,51 @@ func TestShardedMap_evictHeapInuse_concurrency(t *testing.T) {
 			}
 
 			wg.Wait()
+		})
+	}
+}
+
+func TestShardedMap_evictHeapInuse_noTTL(t *testing.T) {
+	for _, be := range backends(Config{
+		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
+		ExpirationJitter:   -1,
+	}.Use) {
+		m, ok := be.(interface {
+			ReadWriter
+			Len() int
+			evictOldest()
+			heapInUseOverflow() bool
+		})
+
+		if !ok {
+			continue
+		}
+
+		t.Run(fmt.Sprintf("%T", be), func(t *testing.T) {
+			// expire := time.Now().Add(time.Hour)
+			ctx := context.Background()
+
+			// Filling cache with enough items.
+			for i := 0; i < 1000; i++ {
+				require.NoError(t, m.Write(ctx, []byte(strconv.Itoa(i)), i))
+			}
+
+			assert.Equal(t, 1000, m.Len())
+			assert.True(t, m.heapInUseOverflow())
+
+			// Keys 0-99 should be evicted by 0.1 fraction, keys 100-999 should remain.
+			m.evictOldest()
+			assert.Equal(t, 900, m.Len())
+
+			for i := 0; i < 100; i++ {
+				_, err := m.Read(context.Background(), []byte(strconv.Itoa(i)))
+				assert.EqualError(t, err, ErrNotFound.Error())
+			}
+
+			for i := 100; i < 1000; i++ {
+				_, err := m.Read(context.Background(), []byte(strconv.Itoa(i)))
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

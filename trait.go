@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"runtime"
 	"time"
@@ -190,15 +191,30 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 	return cacheEntry.V, nil
 }
 
+func (c *Trait) expireAt(ctx context.Context) (time.Duration, time.Time) {
+	ttl := c.TTL(ctx)
+	expireAt := time.Time{}
+
+	if ttl != DefaultTTL {
+		expireAt = time.Now().Add(ttl)
+	}
+
+	return ttl, expireAt
+}
+
 // TTL calculates time to live for a new entry.
 func (c *Trait) TTL(ctx context.Context) time.Duration {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
+		if c.Config.TimeToLive == NoTTL {
+			return 0
+		}
+
 		ttl = c.Config.TimeToLive
 	}
 
 	if c.Config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) //nolint:gosec
 	}
 
 	return ttl
@@ -311,5 +327,5 @@ func (e errExpired) ExpiredAt() time.Time {
 }
 
 func (e errExpired) Is(err error) bool {
-	return err == ErrExpired // nolint:errorlint,goerr113  // Target sentinel error is not wrapped.
+	return errors.Is(err, ErrExpired)
 }

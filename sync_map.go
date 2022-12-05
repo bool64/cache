@@ -68,13 +68,13 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 
 // Write sets value by the key.
 func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
-	ttl := c.t.TTL(ctx)
-
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	c.data.Store(string(k), &TraitEntry{V: v, K: key, E: time.Now().Add(ttl)})
+	ttl, expireAt := c.t.expireAt(ctx)
+
+	c.data.Store(string(k), &TraitEntry{V: v, K: key, E: expireAt})
 	c.t.NotifyWritten(ctx, key, v, ttl)
 
 	return nil
@@ -95,7 +95,7 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
 
 		cacheEntry.E = start
 		cnt++
@@ -123,7 +123,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 
 func (c *syncMap) deleteExpired(before time.Time) {
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
 		if cacheEntry.E.Before(before) {
 			c.data.Delete(key)
 		}
@@ -221,7 +221,7 @@ func (c *syncMap) evictOldest(evictFraction float64) int {
 
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
-		i := value.(*TraitEntry) // nolint // Panic on type assertion failure is fine here.
+		i := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
 		entries = append(entries, en{expireAt: i.E, key: string(i.K)})
 
 		return true
