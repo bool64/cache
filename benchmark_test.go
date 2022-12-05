@@ -107,7 +107,7 @@ func Benchmark_FailoverAlwaysBuild(b *testing.B) {
 		k = append(k[:0], []byte("oneone1234")...)
 		binary.BigEndian.PutUint32(k[6:], uint32(i%10000))
 
-		_, _ = c.Get(cache.WithTTL(ctx, cache.SkipWriteTTL, false), k, func(ctx context.Context) (interface{}, error) {
+		_, _ = c.Get(cache.WithTTL(ctx, -1, false), k, func(ctx context.Context) (interface{}, error) {
 			return 123, nil
 		})
 	}

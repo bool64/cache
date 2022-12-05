@@ -14,7 +14,7 @@ type Config struct {
 	Name string
 
 	// TimeToLive is delay before entry expiration, default 5m.
-	// Use NoTTL value to set up unlimited TTL.
+	// Use UnlimitedTTL value to set up unlimited TTL.
 	TimeToLive time.Duration
 
 	// DeleteExpiredAfter is delay before expired entry is deleted from cache, default 24h.

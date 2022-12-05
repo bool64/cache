@@ -10,11 +10,8 @@ const (
 	// DefaultTTL indicates default value (replaced by config.TimeToLive) for entry expiration time.
 	DefaultTTL = time.Duration(0)
 
-	// NoTTL indicates unlimited TTL for config TimeToLive.
-	NoTTL = time.Duration(-2)
-
-	// SkipWriteTTL is a ttl value to indicate that cache must not be stored.
-	SkipWriteTTL = time.Duration(-1)
+	// UnlimitedTTL indicates unlimited TTL for config TimeToLive.
+	UnlimitedTTL = time.Duration(-1)
 )
 
 // Reader reads from cache.

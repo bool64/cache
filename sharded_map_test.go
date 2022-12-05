@@ -112,6 +112,7 @@ func TestNewShardedMap_noExpiration(t *testing.T) {
 		config.Logger = &logger
 		config.Stats = &st
 		config.Name = "test"
+		config.TimeToLive = cache.UnlimitedTTL
 	})
 
 	ctx := context.Background()

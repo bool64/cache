@@ -165,7 +165,7 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 		return nil, ErrNotFound
 	}
 
-	if cacheEntry.E.Before(time.Now()) {
+	if !cacheEntry.E.IsZero() && cacheEntry.E.Before(time.Now()) {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -195,7 +195,7 @@ func (c *Trait) expireAt(ctx context.Context) (time.Duration, time.Time) {
 	ttl := c.TTL(ctx)
 	expireAt := time.Time{}
 
-	if ttl != DefaultTTL {
+	if ttl != 0 {
 		expireAt = time.Now().Add(ttl)
 	}
 
@@ -206,7 +206,7 @@ func (c *Trait) expireAt(ctx context.Context) (time.Duration, time.Time) {
 func (c *Trait) TTL(ctx context.Context) time.Duration {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
-		if c.Config.TimeToLive == NoTTL {
+		if c.Config.TimeToLive == UnlimitedTTL {
 			return 0
 		}
 

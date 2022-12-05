@@ -487,7 +487,7 @@ func TestFailover_Get_keyLock(t *testing.T) {
 				go func() {
 					defer wg.Done()
 
-					val, err := sc.Get(cache.WithTTL(ctx, cache.SkipWriteTTL, false), key, func(ctx context.Context) (interface{}, error) {
+					val, err := sc.Get(cache.WithTTL(ctx, -1, false), key, func(ctx context.Context) (interface{}, error) {
 						return updateFunc(key), nil
 					})
 
@@ -724,7 +724,7 @@ func TestFailover_Get_staleValue(t *testing.T) {
 				k := "oneone" + strconv.Itoa(i)
 
 				// Storing expired values.
-				v, err := c.Get(cache.WithTTL(ctx, cache.SkipWriteTTL, false), []byte(k), func(ctx context.Context) (interface{}, error) {
+				v, err := c.Get(cache.WithTTL(ctx, -1, false), []byte(k), func(ctx context.Context) (interface{}, error) {
 					return 123, nil
 				})
 
