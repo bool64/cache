@@ -52,24 +52,35 @@ linters:
     - ireturn
     - exhaustruct
     - nonamedreturns
+    - nosnakecase
+    - structcheck
+    - varcheck
+    - deadcode
+    - testableexamples
+    - dupword
 
 issues:
   exclude-use-default: false
   exclude-rules:
     - linters:
+        - errcheck
+        - errorlint
         - gomnd
         - goconst
         - goerr113
         - noctx
         - funlen
         - dupl
-        - errcheck
-        - errorlint
+        - structcheck
+        - unused
+        - unparam
+        - nosnakecase
       path: "_test.go"
+    - linters:
+        - errcheck # Error checking omitted for brevity.
+        - gosec
+      path: "example_"
     - linters:
         - dupl
       path: "bench/"
-    - linters:
-        - revive
-      text: "receiver-naming: receiver name"
 

@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"encoding"
 	"encoding/binary"
 	"strconv"
 
@@ -19,6 +20,11 @@ type SmallCachedValue struct {
 	S string
 	I int
 }
+
+var (
+	_ encoding.BinaryUnmarshaler = &SmallCachedValue{}
+	_ encoding.BinaryMarshaler   = &SmallCachedValue{}
+)
 
 // MarshalBinary encodes SmallCachedValue to bytes.
 func (s SmallCachedValue) MarshalBinary() (data []byte, err error) {

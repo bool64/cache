@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"runtime"
 	"time"
@@ -164,7 +165,7 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 		return nil, ErrNotFound
 	}
 
-	if cacheEntry.E.Before(time.Now()) {
+	if !cacheEntry.E.IsZero() && cacheEntry.E.Before(time.Now()) {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -190,15 +191,30 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 	return cacheEntry.V, nil
 }
 
+func (c *Trait) expireAt(ctx context.Context) (time.Duration, time.Time) {
+	ttl := c.TTL(ctx)
+	expireAt := time.Time{}
+
+	if ttl != 0 {
+		expireAt = time.Now().Add(ttl)
+	}
+
+	return ttl, expireAt
+}
+
 // TTL calculates time to live for a new entry.
 func (c *Trait) TTL(ctx context.Context) time.Duration {
 	ttl := TTL(ctx)
 	if ttl == DefaultTTL {
+		if c.Config.TimeToLive == UnlimitedTTL {
+			return 0
+		}
+
 		ttl = c.Config.TimeToLive
 	}
 
 	if c.Config.ExpirationJitter > 0 {
-		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) // nolint:gosec
+		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) //nolint:gosec
 	}
 
 	return ttl
@@ -311,5 +327,5 @@ func (e errExpired) ExpiredAt() time.Time {
 }
 
 func (e errExpired) Is(err error) bool {
-	return err == ErrExpired // nolint:errorlint,goerr113  // Target sentinel error is not wrapped.
+	return errors.Is(err, ErrExpired)
 }

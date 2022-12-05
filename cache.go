@@ -6,11 +6,13 @@ import (
 	"time"
 )
 
-// DefaultTTL indicates default (unlimited ttl) value for entry expiration time.
-const DefaultTTL = time.Duration(0)
+const (
+	// DefaultTTL indicates default value (replaced by config.TimeToLive) for entry expiration time.
+	DefaultTTL = time.Duration(0)
 
-// SkipWriteTTL is a ttl value to indicate that cache must not be stored.
-const SkipWriteTTL = time.Duration(-1)
+	// UnlimitedTTL indicates unlimited TTL for config TimeToLive.
+	UnlimitedTTL = time.Duration(-1)
+)
 
 // Reader reads from cache.
 type Reader interface {

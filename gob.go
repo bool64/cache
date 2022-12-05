@@ -89,7 +89,7 @@ func recursiveTypeHash(t reflect.Type, h hash.Hash64, met map[reflect.Type]bool)
 	}
 }
 
-// nolint:gochecknoinits // Registering types to a package level registry of "encoding/gob".
+//nolint:gochecknoinits // Registering types to a package level registry of "encoding/gob".
 func init() {
 	// Registering commonly used types.
 	gob.Register(map[string]interface{}{})

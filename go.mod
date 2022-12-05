@@ -3,11 +3,11 @@ module github.com/bool64/cache
 go 1.18
 
 require (
-	github.com/bool64/ctxd v1.1.3
-	github.com/bool64/dev v0.2.12
+	github.com/bool64/ctxd v1.2.0
+	github.com/bool64/dev v0.2.22
 	github.com/bool64/stats v0.2.2
-	github.com/cespare/xxhash/v2 v2.1.2
-	github.com/stretchr/testify v1.7.1
+	github.com/cespare/xxhash/v2 v2.2.0
+	github.com/stretchr/testify v1.8.1
 	github.com/swaggest/assertjson v1.7.0
 )
 
@@ -23,5 +23,5 @@ require (
 	github.com/yudai/golcs v0.0.0-20170316035057-ecda9a501e82 // indirect
 	golang.org/x/net v0.0.0-20220526153639-5463443f8c37 // indirect
 	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
-	gopkg.in/yaml.v3 v3.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

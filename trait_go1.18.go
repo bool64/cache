@@ -5,6 +5,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -36,7 +37,7 @@ func (c *TraitOf[V]) PrepareRead(ctx context.Context, cacheEntry *TraitEntryOf[V
 		return v, ErrNotFound
 	}
 
-	if cacheEntry.E.Before(time.Now()) {
+	if !cacheEntry.E.IsZero() && cacheEntry.E.Before(time.Now()) {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -119,5 +120,5 @@ func (e errExpiredOf[V]) ExpiredAt() time.Time {
 }
 
 func (e errExpiredOf[V]) Is(err error) bool {
-	return err == ErrExpired // nolint:errorlint,goerr113  // Target sentinel error is not wrapped.
+	return errors.Is(err, ErrExpired)
 }

@@ -125,13 +125,13 @@ func (c *shardedMap) Write(ctx context.Context, k []byte, v interface{}) error {
 	b.Lock()
 	defer b.Unlock()
 
-	ttl := c.t.TTL(ctx)
-
 	// Copy key to allow mutations of original argument.
 	key := make([]byte, len(k))
 	copy(key, k)
 
-	b.data[h] = &TraitEntry{V: v, K: key, E: time.Now().Add(ttl)}
+	ttl, expireAt := c.t.expireAt(ctx)
+
+	b.data[h] = &TraitEntry{V: v, K: key, E: expireAt}
 
 	c.t.NotifyWritten(ctx, key, v, ttl)
 
