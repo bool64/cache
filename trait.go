@@ -165,7 +165,7 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 		return nil, ErrNotFound
 	}
 
-	now := time.Now().UnixMicro()
+	now := ts(time.Now())
 
 	if cacheEntry.E != 0 && cacheEntry.E < now {
 		if c.Log.logDebug != nil {
@@ -195,7 +195,7 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 
 func (c *Trait) expireAt(ctx context.Context) (time.Duration, int64) {
 	if ttl := c.TTL(ctx); ttl != 0 {
-		return ttl, time.Now().Add(ttl).UnixMicro()
+		return ttl, ts(time.Now().Add(ttl))
 	}
 
 	return 0, 0
@@ -306,7 +306,7 @@ func (e TraitEntry) Value() interface{} {
 
 // ExpireAt returns entry expiration time.
 func (e TraitEntry) ExpireAt() time.Time {
-	return time.UnixMicro(e.E)
+	return tsTime(e.E)
 }
 
 type errExpired struct {
@@ -322,9 +322,17 @@ func (e errExpired) Value() interface{} {
 }
 
 func (e errExpired) ExpiredAt() time.Time {
-	return time.UnixMicro(e.entry.E)
+	return tsTime(e.entry.E)
 }
 
 func (e errExpired) Is(err error) bool {
 	return errors.Is(err, ErrExpired)
+}
+
+func ts(t time.Time) int64 {
+	return t.UnixNano()
+}
+
+func tsTime(ns int64) time.Time {
+	return time.Unix(ns/1e9, ns%1e9)
 }

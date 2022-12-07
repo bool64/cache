@@ -92,13 +92,13 @@ func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 // ExpireAll marks all entries as expired, they can still serve stale values.
 func (c *syncMap) ExpireAll(ctx context.Context) {
 	start := time.Now()
-	startMicro := start.UnixMicro()
+	startTS := ts(start)
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
 
-		cacheEntry.E = startMicro
+		cacheEntry.E = startTS
 		cnt++
 
 		return true
@@ -123,11 +123,11 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 }
 
 func (c *syncMap) deleteExpired(before time.Time) {
-	beforeMicro := before.UnixMicro()
+	beforeTS := ts(before)
 
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
-		if cacheEntry.E < beforeMicro {
+		if cacheEntry.E < beforeTS {
 			c.data.Delete(key)
 		}
 

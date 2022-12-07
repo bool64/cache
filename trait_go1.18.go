@@ -37,7 +37,7 @@ func (c *TraitOf[V]) PrepareRead(ctx context.Context, cacheEntry *TraitEntryOf[V
 		return v, ErrNotFound
 	}
 
-	if cacheEntry.E != 0 && cacheEntry.E < time.Now().UnixMicro() {
+	if cacheEntry.E != 0 && cacheEntry.E < ts(time.Now()) {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -98,7 +98,7 @@ func (e TraitEntryOf[V]) Value() V {
 
 // ExpireAt returns entry expiration time.
 func (e TraitEntryOf[V]) ExpireAt() time.Time {
-	return time.UnixMicro(e.E)
+	return tsTime(e.E)
 }
 
 var _ ErrWithExpiredItemOf[any] = errExpiredOf[any]{}
@@ -116,7 +116,7 @@ func (e errExpiredOf[V]) Value() V {
 }
 
 func (e errExpiredOf[V]) ExpiredAt() time.Time {
-	return time.UnixMicro(e.entry.E)
+	return tsTime(e.entry.E)
 }
 
 func (e errExpiredOf[V]) Is(err error) bool {
