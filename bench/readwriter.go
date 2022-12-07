@@ -17,6 +17,7 @@ type ReadWriterRunner struct {
 	RW          cache.ReadWriter
 	D           cache.Deleter
 	Cardinality int
+	Name        string
 }
 
 // Make initializes benchmark runner.
@@ -39,11 +40,17 @@ func (cl ReadWriterRunner) Make(b *testing.B, cardinality int) (Runner, string) 
 		}
 	}
 
+	name := cl.Name
+
+	if name == "" {
+		name = fmt.Sprintf("%T", be)
+	}
+
 	return ReadWriterRunner{
 		RW:          be,
 		D:           be.(cache.Deleter),
 		Cardinality: cardinality,
-	}, fmt.Sprintf("%T", be)
+	}, name
 }
 
 // Run iterates over the cache.

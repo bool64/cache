@@ -116,8 +116,18 @@ All items are checked in background once an hour (configurable with `DeleteExpir
 expired more than 24h ago (configurable with `DeleteExpiredAfter`) are removed.
 
 Additionally, there are `HeapInUseSoftLimit` and `CountSoftLimit` to trigger eviction of 10% (configurable
-with `EvictFraction`) oldest entries if count of items or application heap in use exceeds the limit. Limit check and
+with `EvictFraction`) entries if count of items or application heap in use exceeds the limit. Limit check and
 optional eviction are triggered right after expired items check (in the same background job).
+
+`EvictionStrategy` defines which entries would be evicted, by default `EvictMostExpired` is used.
+It selects entries with the longest expiration overdue or those that are soonest to expire.
+
+Alternatively `EvictLeastRecentlyUsed` (LRU) and `EvictLeastFrequentlyUsed` (LFU) can be used at cost 
+of minor performance impact (for updating counters on each cache serve).
+
+Keep in mind that eviction happens in response to soft limits that are checked periodically, so
+dataset may stay above eviction threshold, especially if `EvictFraction` combined with `DeleteExpiredJobInterval` 
+are lower than speed of growth.
 
 ### Batch Operations
 

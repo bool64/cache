@@ -46,7 +46,28 @@ type Config struct {
 	// EvictFraction is a fraction (0, 1] of total count of items to be evicted when resource is overused,
 	// default 0.1 (10% of items).
 	EvictFraction float64
+
+	// EvictionStrategy is EvictMostExpired by default.
+	EvictionStrategy EvictionStrategy
 }
+
+// EvictionStrategy defines eviction behavior when soft limit is met during cleanup job.
+type EvictionStrategy uint8
+
+const (
+	// EvictMostExpired removes entries with the oldest expiration time.
+	// Both expired and non-expired entries may be affected.
+	// Default eviction strategy, most performant as it does not maintain counters on each serve.
+	EvictMostExpired EvictionStrategy = iota
+
+	// EvictLeastRecentlyUsed removes entries that were not served recently.
+	// It has a minor performance impact due to update of timestamp on every serve.
+	EvictLeastRecentlyUsed
+
+	// EvictLeastFrequentlyUsed removes entries that were in low demand.
+	// It has a minor performance impact due to update of timestamp on every serve.
+	EvictLeastFrequentlyUsed
+)
 
 // Use is a functional option to apply configuration.
 func (c Config) Use(cfg *Config) {

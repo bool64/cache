@@ -37,6 +37,12 @@ var (
 	}
 
 	ReadWriters = []Runner{
+		ReadWriterRunner{Name: "ShardedMap/LRU", F: func() cache.ReadWriter {
+			return cache.NewShardedMap(func(cfg *cache.Config) {
+				cfg.CountSoftLimit = 1e10
+				cfg.EvictionStrategy = cache.EvictLeastRecentlyUsed
+			})
+		}},
 		ReadWriterRunner{F: func() cache.ReadWriter {
 			return cache.NewShardedMap()
 		}},

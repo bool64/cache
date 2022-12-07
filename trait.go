@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,13 +53,13 @@ func (c *Trait) janitor() {
 				c.DeleteExpired(expirationBoundary)
 			}
 
-			if c.EvictOldest != nil && (c.heapInUseOverflow() || c.countOverflow()) {
+			if c.Evict != nil && (c.heapInUseOverflow() || c.countOverflow()) {
 				frac := c.Config.EvictFraction
 				if frac == 0 {
 					frac = 0.1
 				}
 
-				cnt := c.EvictOldest(frac)
+				cnt := c.Evict(frac)
 
 				if c.Stat != nil {
 					c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
@@ -83,7 +84,7 @@ func (c *Trait) heapInUseOverflow() bool {
 	m := runtime.MemStats{}
 	runtime.ReadMemStats(&m)
 
-	return m.HeapInuse >= c.Config.HeapInUseSoftLimit
+	return m.HeapInuse > c.Config.HeapInUseSoftLimit
 }
 
 func (c *Trait) countOverflow() bool {
@@ -91,7 +92,7 @@ func (c *Trait) countOverflow() bool {
 		return false
 	}
 
-	return c.Len() >= int(c.Config.CountSoftLimit)
+	return c.Len() > int(c.Config.CountSoftLimit)
 }
 
 // Trait is a shared trait, useful to implement ReadWriter.
@@ -100,7 +101,7 @@ type Trait struct {
 
 	DeleteExpired func(before time.Time)
 	Len           func() int
-	EvictOldest   func(fraction float64) int
+	Evict         func(fraction float64) int
 
 	Config Config
 	Stat   StatsTracker
@@ -144,7 +145,7 @@ func NewTrait(config Config, options ...func(t *Trait)) *Trait {
 		go t.reportItemsCount()
 	}
 
-	if t.DeleteExpired != nil || t.EvictOldest != nil {
+	if t.DeleteExpired != nil || t.Evict != nil {
 		go t.janitor()
 	}
 
@@ -166,6 +167,15 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 	}
 
 	now := ts(time.Now())
+
+	if cacheEntry != nil && c.Config.EvictionStrategy != EvictMostExpired {
+		switch c.Config.EvictionStrategy {
+		case EvictLeastRecentlyUsed:
+			atomic.StoreInt64(&cacheEntry.C, now)
+		case EvictLeastFrequentlyUsed:
+			atomic.AddInt64(&cacheEntry.C, 1)
+		}
+	}
 
 	if cacheEntry.E != 0 && cacheEntry.E < now {
 		if c.Log.logDebug != nil {
@@ -291,8 +301,11 @@ func (ks Key) MarshalText() ([]byte, error) {
 type TraitEntry struct {
 	K Key         `json:"key" description:"Key."`
 	V interface{} `json:"val" description:"Value."`
-	E int64       `json:"exp" description:"Expiration timestamp (ms)."`
+	E int64       `json:"exp" description:"Expiration timestamp (ns)."`
+	C int64       `json:"-" description:"Usage count or last serve timestamp (ns)."`
 }
+
+var _ Entry = TraitEntry{}
 
 // Key returns entry key.
 func (e TraitEntry) Key() []byte {

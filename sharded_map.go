@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -53,10 +54,16 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 		option(&cfg)
 	}
 
+	evict := c.evictMostExpired
+
+	if cfg.EvictionStrategy != EvictMostExpired {
+		evict = c.evictLeastCounter
+	}
+
 	c.t = NewTrait(cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
-		t.EvictOldest = c.evictOldest
+		t.Evict = evict
 	})
 
 	runtime.SetFinalizer(C, func(m *ShardedMap) {
@@ -302,12 +309,25 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-type evictEntry struct {
-	hash     uint64
-	expireAt int64
+type evictLeastEntry struct {
+	hash uint64
+	val  int64
 }
 
-func (c *shardedMap) evictOldest(evictFraction float64) int {
+func (c *shardedMap) evictMostExpired(evictFraction float64) int {
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return atomic.LoadInt64(&i.E)
+	})
+}
+
+func (c *shardedMap) evictLeastCounter(evictFraction float64) int {
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return atomic.LoadInt64(&i.C)
+	})
+}
+
+//nolint:dupl // Hard to deduplicate due to generic constraints.
+func (c *shardedMap) evictLeast(evictFraction float64, val func(i *TraitEntry) int64) int {
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -318,7 +338,7 @@ func (c *shardedMap) evictOldest(evictFraction float64) int {
 		b.RUnlock()
 	}
 
-	entries := make([]evictEntry, 0, cnt)
+	entries := make([]evictLeastEntry, 0, cnt)
 
 	// Collect all keys and expirations.
 	for i := range c.hashedBuckets {
@@ -326,14 +346,14 @@ func (c *shardedMap) evictOldest(evictFraction float64) int {
 
 		b.RLock()
 		for h, i := range b.data {
-			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
+			entries = append(entries, evictLeastEntry{hash: h, val: val(i)})
 		}
 		b.RUnlock()
 	}
 
 	// Sort entries to put most expired in head.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expireAt < entries[j].expireAt
+		return entries[i].val < entries[j].val
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)
