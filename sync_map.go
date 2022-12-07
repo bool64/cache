@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -221,13 +222,13 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 
 func (c *syncMap) evictMostExpired(evictFraction float64) int {
 	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
-		return i.E
+		return atomic.LoadInt64(&i.E)
 	})
 }
 
 func (c *syncMap) evictLeastCounter(evictFraction float64) int {
 	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
-		return i.C
+		return atomic.LoadInt64(&i.C)
 	})
 }
 

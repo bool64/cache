@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -368,13 +369,13 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 
 func (c *shardedMapOf[V]) evictMostExpired(evictFraction float64) int {
 	return c.evictLeast(evictFraction, func(i *TraitEntryOf[V]) int64 {
-		return i.E
+		return atomic.LoadInt64(&i.E)
 	})
 }
 
 func (c *shardedMapOf[V]) evictLeastCounter(evictFraction float64) int {
 	return c.evictLeast(evictFraction, func(i *TraitEntryOf[V]) int64 {
-		return i.C
+		return atomic.LoadInt64(&i.C)
 	})
 }
 
