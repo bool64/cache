@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -66,6 +67,8 @@ func Concurrently(b *testing.B, scenarios []Scenario) {
 			c, name := loader.Make(b, sc.Cardinality)
 			preload := time.Since(now)
 			inUse := float64(StableHeapInUse()-before) / (1024 * 1024)
+
+			name = strings.ReplaceAll(name, "github.com/bool64/cache/bench.", "")
 
 			b.Run(fmt.Sprintf("c%d:g%d:w%.2f%%:%s", sc.Cardinality, sc.NumRoutines, sc.WritePercent, name), func(b *testing.B) {
 				c := c
