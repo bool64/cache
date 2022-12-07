@@ -255,8 +255,7 @@ func Test_LRU_eviction(t *testing.T) {
 
 				time.Sleep(time.Microsecond)
 
-				_, err := c.Read(ctx, k)
-				require.NoError(t, err)
+				_, _ = c.Read(ctx, k)
 			}
 
 			i := 0
