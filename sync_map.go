@@ -43,7 +43,7 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 	c.t = NewTrait(cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
-		t.EvictOldest = c.evictOldest
+		t.Evict = c.evictMostExpired
 	})
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
@@ -213,7 +213,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-func (c *syncMap) evictOldest(evictFraction float64) int {
+func (c *syncMap) evictMostExpired(evictFraction float64) int {
 	type en struct {
 		key      string
 		expireAt int64

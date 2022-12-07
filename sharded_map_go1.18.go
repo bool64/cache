@@ -58,7 +58,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 	c.t = NewTraitOf[V](cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
-		t.EvictOldest = c.evictOldest
+		t.Evict = c.evictMostExpired
 	})
 
 	runtime.SetFinalizer(C, func(m *ShardedMapOf[V]) {
@@ -360,7 +360,7 @@ func (c *ShardedMapOf[V]) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-func (c *shardedMapOf[V]) evictOldest(evictFraction float64) int {
+func (c *shardedMapOf[V]) evictMostExpired(evictFraction float64) int {
 	keysCnt := c.Len()
 	entries := make([]evictEntry, 0, keysCnt)
 
