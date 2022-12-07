@@ -165,7 +165,9 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 		return nil, ErrNotFound
 	}
 
-	if !cacheEntry.E.IsZero() && cacheEntry.E.Before(time.Now()) {
+	now := time.Now().UnixMicro()
+
+	if cacheEntry.E != 0 && cacheEntry.E < now {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -191,15 +193,12 @@ func (c *Trait) PrepareRead(ctx context.Context, cacheEntry *TraitEntry, found b
 	return cacheEntry.V, nil
 }
 
-func (c *Trait) expireAt(ctx context.Context) (time.Duration, time.Time) {
-	ttl := c.TTL(ctx)
-	expireAt := time.Time{}
-
-	if ttl != 0 {
-		expireAt = time.Now().Add(ttl)
+func (c *Trait) expireAt(ctx context.Context) (time.Duration, int64) {
+	if ttl := c.TTL(ctx); ttl != 0 {
+		return ttl, time.Now().Add(ttl).UnixMicro()
 	}
 
-	return ttl, expireAt
+	return 0, 0
 }
 
 // TTL calculates time to live for a new entry.
@@ -290,9 +289,9 @@ func (ks Key) MarshalText() ([]byte, error) {
 
 // TraitEntry is a cache entry.
 type TraitEntry struct {
-	K Key         `json:"key"`
-	V interface{} `json:"val"`
-	E time.Time   `json:"exp"`
+	K Key         `json:"key" description:"Key."`
+	V interface{} `json:"val" description:"Value."`
+	E int64       `json:"exp" description:"Expiration timestamp (ms)."`
 }
 
 // Key returns entry key.
@@ -307,7 +306,7 @@ func (e TraitEntry) Value() interface{} {
 
 // ExpireAt returns entry expiration time.
 func (e TraitEntry) ExpireAt() time.Time {
-	return e.E
+	return time.UnixMicro(e.E)
 }
 
 type errExpired struct {
@@ -323,7 +322,7 @@ func (e errExpired) Value() interface{} {
 }
 
 func (e errExpired) ExpiredAt() time.Time {
-	return e.entry.E
+	return time.UnixMicro(e.entry.E)
 }
 
 func (e errExpired) Is(err error) bool {

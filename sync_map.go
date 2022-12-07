@@ -92,12 +92,13 @@ func (c *syncMap) Delete(ctx context.Context, key []byte) error {
 // ExpireAll marks all entries as expired, they can still serve stale values.
 func (c *syncMap) ExpireAll(ctx context.Context) {
 	start := time.Now()
+	startMicro := start.UnixMicro()
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
 
-		cacheEntry.E = start
+		cacheEntry.E = startMicro
 		cnt++
 
 		return true
@@ -122,9 +123,11 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 }
 
 func (c *syncMap) deleteExpired(before time.Time) {
+	beforeMicro := before.UnixMicro()
+
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
-		if cacheEntry.E.Before(before) {
+		if cacheEntry.E < beforeMicro {
 			c.data.Delete(key)
 		}
 
@@ -213,7 +216,7 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 func (c *syncMap) evictOldest(evictFraction float64) int {
 	type en struct {
 		key      string
-		expireAt time.Time
+		expireAt int64
 	}
 
 	keysCnt := c.Len()
@@ -229,7 +232,7 @@ func (c *syncMap) evictOldest(evictFraction float64) int {
 
 	// Sort entries to put most expired in head.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expireAt.Before(entries[j].expireAt)
+		return entries[i].expireAt < entries[j].expireAt
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)

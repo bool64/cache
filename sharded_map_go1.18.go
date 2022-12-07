@@ -170,13 +170,14 @@ func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 // ExpireAll marks all entries as expired, they can still serve stale cache.
 func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
 	start := time.Now()
+	startMicro := start.UnixMicro()
 	cnt := 0
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 		b.Lock()
 		for h, v := range b.data {
-			v.E = start
+			v.E = startMicro
 			b.data[h] = v
 			cnt++
 		}
@@ -206,12 +207,14 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 }
 
 func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
+	beforeMicro := before.UnixMicro()
+
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.Lock()
 		for h, v := range b.data {
-			if v.E.Before(before) {
+			if v.E < beforeMicro {
 				delete(b.data, h)
 			}
 		}
@@ -374,7 +377,7 @@ func (c *shardedMapOf[V]) evictOldest(evictFraction float64) int {
 
 	// Sort entries to put most expired in head.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expireAt.Before(entries[j].expireAt)
+		return entries[i].expireAt < entries[j].expireAt
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)
