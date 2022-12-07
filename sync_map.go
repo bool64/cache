@@ -40,10 +40,16 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		option(&cfg)
 	}
 
+	evict := c.evictMostExpired
+
+	if cfg.EvictionStrategy != EvictMostExpired {
+		evict = c.evictLeastCounter
+	}
+
 	c.t = NewTrait(cfg, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
-		t.Evict = c.evictMostExpired
+		t.Evict = evict
 	})
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
@@ -214,9 +220,21 @@ func (c *SyncMap) Restore(r io.Reader) (int, error) {
 }
 
 func (c *syncMap) evictMostExpired(evictFraction float64) int {
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return i.E
+	})
+}
+
+func (c *syncMap) evictLeastCounter(evictFraction float64) int {
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return i.C
+	})
+}
+
+func (c *syncMap) evictLeast(evictFraction float64, val func(i *TraitEntry) int64) int {
 	type en struct {
-		key      string
-		expireAt int64
+		key string
+		val int64
 	}
 
 	keysCnt := c.Len()
@@ -225,14 +243,14 @@ func (c *syncMap) evictMostExpired(evictFraction float64) int {
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
 		i := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
-		entries = append(entries, en{expireAt: i.E, key: string(i.K)})
+		entries = append(entries, en{val: val(i), key: string(i.K)})
 
 		return true
 	})
 
 	// Sort entries to put most expired in head.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expireAt < entries[j].expireAt
+		return entries[i].val < entries[j].val
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)

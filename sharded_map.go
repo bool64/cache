@@ -308,60 +308,25 @@ func (c *ShardedMap) Restore(r io.Reader) (int, error) {
 	return n, nil
 }
 
-type evictEntry struct {
-	hash     uint64
-	expireAt int64
+type evictLeastEntry struct {
+	hash uint64
+	val  int64
 }
 
 func (c *shardedMap) evictMostExpired(evictFraction float64) int {
-	cnt := 0
-
-	for i := range c.hashedBuckets {
-		b := &c.hashedBuckets[i]
-
-		b.RLock()
-		cnt += len(b.data)
-		b.RUnlock()
-	}
-
-	entries := make([]evictEntry, 0, cnt)
-
-	// Collect all keys and expirations.
-	for i := range c.hashedBuckets {
-		b := &c.hashedBuckets[i]
-
-		b.RLock()
-		for h, i := range b.data {
-			entries = append(entries, evictEntry{hash: h, expireAt: i.E})
-		}
-		b.RUnlock()
-	}
-
-	// Sort entries to put most expired in head.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].expireAt < entries[j].expireAt
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return i.E
 	})
-
-	evictItems := int(float64(len(entries)) * evictFraction)
-
-	for i := 0; i < evictItems; i++ {
-		h := entries[i].hash
-		b := &c.hashedBuckets[h%shards]
-
-		b.Lock()
-		delete(b.data, h)
-		b.Unlock()
-	}
-
-	return evictItems
 }
 
 func (c *shardedMap) evictLeastCounter(evictFraction float64) int {
-	type evictEntry struct {
-		hash uint64
-		cnt  int64
-	}
+	return c.evictLeast(evictFraction, func(i *TraitEntry) int64 {
+		return i.C
+	})
+}
 
+//nolint:dupl // Hard to deduplicate due to generic types.
+func (c *shardedMap) evictLeast(evictFraction float64, val func(i *TraitEntry) int64) int {
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -372,7 +337,7 @@ func (c *shardedMap) evictLeastCounter(evictFraction float64) int {
 		b.RUnlock()
 	}
 
-	entries := make([]evictEntry, 0, cnt)
+	entries := make([]evictLeastEntry, 0, cnt)
 
 	// Collect all keys and expirations.
 	for i := range c.hashedBuckets {
@@ -380,14 +345,14 @@ func (c *shardedMap) evictLeastCounter(evictFraction float64) int {
 
 		b.RLock()
 		for h, i := range b.data {
-			entries = append(entries, evictEntry{hash: h, cnt: i.C})
+			entries = append(entries, evictLeastEntry{hash: h, val: val(i)})
 		}
 		b.RUnlock()
 	}
 
 	// Sort entries to put most expired in head.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].cnt < entries[j].cnt
+		return entries[i].val < entries[j].val
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)

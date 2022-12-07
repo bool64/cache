@@ -6,6 +6,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,7 +38,18 @@ func (c *TraitOf[V]) PrepareRead(ctx context.Context, cacheEntry *TraitEntryOf[V
 		return v, ErrNotFound
 	}
 
-	if cacheEntry.E != 0 && cacheEntry.E < ts(time.Now()) {
+	now := ts(time.Now())
+
+	if cacheEntry != nil && c.Config.EvictionStrategy != EvictMostExpired {
+		switch c.Config.EvictionStrategy {
+		case EvictLeastRecentlyUsed:
+			atomic.StoreInt64(&cacheEntry.C, now)
+		case EvictLeastFrequentlyUsed:
+			atomic.AddInt64(&cacheEntry.C, 1)
+		}
+	}
+
+	if cacheEntry.E != 0 && cacheEntry.E < now {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -83,7 +95,8 @@ func (c *TraitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl
 type TraitEntryOf[V any] struct {
 	K Key   `json:"key" description:"Cache entry key."`
 	V V     `json:"val" description:"Cache entry value."`
-	E int64 `json:"exp" description:"Expiration timestamp, ms."`
+	E int64 `json:"exp" description:"Expiration timestamp, ns."`
+	C int64 `json:"-" description:"Usage count or last serve timestamp (ns)."`
 }
 
 // Key returns entry key.

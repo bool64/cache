@@ -301,8 +301,8 @@ func (ks Key) MarshalText() ([]byte, error) {
 type TraitEntry struct {
 	K Key         `json:"key" description:"Key."`
 	V interface{} `json:"val" description:"Value."`
-	E int64       `json:"exp" description:"Expiration timestamp (ms)."`
-	C int64       `json:"-" description:"Usage count or last serve timestamp (ms)."`
+	E int64       `json:"exp" description:"Expiration timestamp (ns)."`
+	C int64       `json:"-" description:"Usage count or last serve timestamp (ns)."`
 }
 
 // Key returns entry key.
