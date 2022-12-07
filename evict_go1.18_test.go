@@ -199,19 +199,21 @@ func Test_generic_LFU_eviction(t *testing.T) {
 		t.Run(fmt.Sprintf("%T", c), func(t *testing.T) {
 			ctx := context.Background()
 
-			for i := 0; i < 101; i++ {
+			for i := 0; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 				require.NoError(t, c.Write(ctx, k, i))
 
-				time.Sleep(time.Microsecond)
+				_, err := c.Read(ctx, k)
+				require.NoError(t, err)
 
-				_, _ = c.Read(ctx, k)
-
-				if i%2 == 0 {
-					_, err := c.Read(ctx, k)
+				for j := 100 - i; j > 0; j-- {
+					_, err = c.Read(ctx, k)
 					require.NoError(t, err)
 				}
 			}
+
+			// Preparing for eviction.
+			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
 
 			i := 0
 			for {
@@ -226,16 +228,18 @@ func Test_generic_LFU_eviction(t *testing.T) {
 
 			assert.LessOrEqual(t, c.Len(), 51)
 
-			for i := 0; i < 101; i++ {
+			for i := 0; i < 51; i++ {
 				k := []byte(strconv.Itoa(i))
 
 				_, err := c.Read(ctx, k)
+				require.NoError(t, err, i)
+			}
 
-				if i%2 == 0 {
-					require.NoError(t, err)
-				} else {
-					require.EqualError(t, err, "missing cache item") // Evicted.
-				}
+			for i := 51; i < 100; i++ {
+				k := []byte(strconv.Itoa(i))
+
+				_, err := c.Read(ctx, k)
+				assert.EqualError(t, err, "missing cache item", i) // Evicted.
 			}
 		})
 	}
@@ -251,14 +255,18 @@ func Test_generic_LRU_eviction(t *testing.T) {
 		t.Run(fmt.Sprintf("%T", c), func(t *testing.T) {
 			ctx := context.Background()
 
-			for i := 0; i < 101; i++ {
+			for i := 0; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 				require.NoError(t, c.Write(ctx, k, i))
 
-				time.Sleep(time.Microsecond)
+				_, err := c.Read(ctx, k)
+				require.NoError(t, err)
 
-				_, _ = c.Read(ctx, k)
+				time.Sleep(time.Microsecond)
 			}
+
+			// Preparing for eviction.
+			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
 
 			i := 0
 			for {
@@ -273,14 +281,14 @@ func Test_generic_LRU_eviction(t *testing.T) {
 
 			assert.LessOrEqual(t, c.Len(), 51)
 
-			for i := 0; i < 50; i++ {
+			for i := 0; i < 49; i++ {
 				k := []byte(strconv.Itoa(i))
 				_, err := c.Read(ctx, k)
 
-				require.EqualError(t, err, "missing cache item") // Evicted.
+				require.EqualError(t, err, "missing cache item", i) // Evicted.
 			}
 
-			for i := 51; i < 101; i++ {
+			for i := 49; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 				_, err := c.Read(ctx, k)
 

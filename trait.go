@@ -84,7 +84,7 @@ func (c *Trait) heapInUseOverflow() bool {
 	m := runtime.MemStats{}
 	runtime.ReadMemStats(&m)
 
-	return m.HeapInuse >= c.Config.HeapInUseSoftLimit
+	return m.HeapInuse > c.Config.HeapInUseSoftLimit
 }
 
 func (c *Trait) countOverflow() bool {
@@ -92,7 +92,7 @@ func (c *Trait) countOverflow() bool {
 		return false
 	}
 
-	return c.Len() >= int(c.Config.CountSoftLimit)
+	return c.Len() > int(c.Config.CountSoftLimit)
 }
 
 // Trait is a shared trait, useful to implement ReadWriter.
