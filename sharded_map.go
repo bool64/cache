@@ -326,6 +326,7 @@ func (c *shardedMap) evictLeastCounter(evictFraction float64) int {
 	})
 }
 
+//nolint:dupl // Hard to deduplicate due to generic constraints.
 func (c *shardedMap) evictLeast(evictFraction float64, val func(i *TraitEntry) int64) int {
 	cnt := 0
 
@@ -356,7 +357,6 @@ func (c *shardedMap) evictLeast(evictFraction float64, val func(i *TraitEntry) i
 	})
 
 	evictItems := int(float64(len(entries)) * evictFraction)
-	println("evicting", evictItems)
 
 	for i := 0; i < evictItems; i++ {
 		h := entries[i].hash

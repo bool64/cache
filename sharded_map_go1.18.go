@@ -379,6 +379,7 @@ func (c *shardedMapOf[V]) evictLeastCounter(evictFraction float64) int {
 	})
 }
 
+//nolint:dupl // Hard to deduplicate due to generic constraints.
 func (c *shardedMapOf[V]) evictLeast(evictFraction float64, val func(i *TraitEntryOf[V]) int64) int {
 	cnt := 0
 

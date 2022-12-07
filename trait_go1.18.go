@@ -99,6 +99,8 @@ type TraitEntryOf[V any] struct {
 	C int64 `json:"-" description:"Usage count or last serve timestamp (ns)."`
 }
 
+var _ EntryOf[any] = TraitEntryOf[any]{}
+
 // Key returns entry key.
 func (e TraitEntryOf[V]) Key() []byte {
 	return e.K

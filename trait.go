@@ -305,6 +305,8 @@ type TraitEntry struct {
 	C int64       `json:"-" description:"Usage count or last serve timestamp (ns)."`
 }
 
+var _ Entry = TraitEntry{}
+
 // Key returns entry key.
 func (e TraitEntry) Key() []byte {
 	return e.K

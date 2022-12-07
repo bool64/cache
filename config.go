@@ -65,6 +65,7 @@ const (
 	EvictLeastRecentlyUsed
 
 	// EvictLeastFrequentlyUsed removes entries that were in low demand.
+	// It has a minor performance impact due to update of timestamp on every serve.
 	EvictLeastFrequentlyUsed
 )
 
