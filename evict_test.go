@@ -203,11 +203,10 @@ func Test_LFU_eviction(t *testing.T) {
 
 				time.Sleep(time.Microsecond)
 
-				_, err := c.Read(ctx, k)
-				require.NoError(t, err)
+				_, _ = c.Read(ctx, k)
 
 				if i%2 == 0 {
-					_, err = c.Read(ctx, k)
+					_, err := c.Read(ctx, k)
 					require.NoError(t, err)
 				}
 			}
