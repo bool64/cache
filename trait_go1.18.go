@@ -37,7 +37,7 @@ func (c *TraitOf[V]) PrepareRead(ctx context.Context, cacheEntry *TraitEntryOf[V
 		return v, ErrNotFound
 	}
 
-	if !cacheEntry.E.IsZero() && cacheEntry.E.Before(time.Now()) {
+	if cacheEntry.E != 0 && cacheEntry.E < ts(time.Now()) {
 		if c.Log.logDebug != nil {
 			c.Log.logDebug(ctx, "cache key expired", "name", c.Config.Name)
 		}
@@ -81,9 +81,9 @@ func (c *TraitOf[V]) NotifyWritten(ctx context.Context, key []byte, value V, ttl
 
 // TraitEntryOf is a cache entry.
 type TraitEntryOf[V any] struct {
-	K Key       `json:"key"`
-	V V         `json:"val"`
-	E time.Time `json:"exp"`
+	K Key   `json:"key" description:"Cache entry key."`
+	V V     `json:"val" description:"Cache entry value."`
+	E int64 `json:"exp" description:"Expiration timestamp, ms."`
 }
 
 // Key returns entry key.
@@ -98,7 +98,7 @@ func (e TraitEntryOf[V]) Value() V {
 
 // ExpireAt returns entry expiration time.
 func (e TraitEntryOf[V]) ExpireAt() time.Time {
-	return e.E
+	return tsTime(e.E)
 }
 
 var _ ErrWithExpiredItemOf[any] = errExpiredOf[any]{}
@@ -116,7 +116,7 @@ func (e errExpiredOf[V]) Value() V {
 }
 
 func (e errExpiredOf[V]) ExpiredAt() time.Time {
-	return e.entry.E
+	return tsTime(e.entry.E)
 }
 
 func (e errExpiredOf[V]) Is(err error) bool {
