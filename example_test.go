@@ -65,3 +65,46 @@ func ExampleFailover_Get() {
 	// Assert the type and use value.
 	_ = v.(string)
 }
+
+func ExampleInvalidationIndex_InvalidateByLabels() {
+	c := cache.NewShardedMap()
+	ctx := context.TODO()
+
+	// Any cache key can be accompanied by invalidation labels.
+	_ = c.Write(ctx, []byte("my-foo"), "foo")
+	c.AddInvalidationLabels([]byte("my-foo"), "my", "f**")
+
+	_ = c.Write(ctx, []byte("my-bar"), "bar")
+	c.AddInvalidationLabels([]byte("my-bar"), "my", "b**")
+
+	_ = c.Write(ctx, []byte("my-baz"), "baz")
+	c.AddInvalidationLabels([]byte("my-baz"), "my", "b**")
+
+	n, _ := c.InvalidateByLabels(ctx, "b**")
+
+	fmt.Println("deleted items for 'b**':", n)
+
+	_, err := c.Read(ctx, []byte("my-foo"))
+	fmt.Println("my-foo err:", err)
+
+	_, err = c.Read(ctx, []byte("my-bar"))
+	fmt.Println("my-bar err:", err)
+
+	_, err = c.Read(ctx, []byte("my-baz"))
+	fmt.Println("my-baz err:", err)
+
+	n, _ = c.InvalidateByLabels(ctx, "my", "f**")
+
+	fmt.Println("deleted items for 'my':", n)
+
+	_, err = c.Read(ctx, []byte("my-foo"))
+	fmt.Println("my-foo err:", err)
+
+	// Output:
+	// deleted items for 'b**': 2
+	// my-foo err: <nil>
+	// my-bar err: missing cache item
+	// my-baz err: missing cache item
+	// deleted items for 'my': 1
+	// my-foo err: missing cache item
+}
