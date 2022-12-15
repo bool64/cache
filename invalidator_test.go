@@ -45,3 +45,49 @@ func TestInvalidator_Invalidate(t *testing.T) {
 	err = i.Invalidate(ctx)
 	assert.Error(t, err) // already invalidated
 }
+
+type deleterFunc func(ctx context.Context, key []byte) error
+
+func (d deleterFunc) Delete(ctx context.Context, key []byte) error {
+	return d(ctx, key)
+}
+
+func TestInvalidationIndex_InvalidateGroups_delete_fails(t *testing.T) {
+	f := func(ctx context.Context, key []byte) error {
+		if string(key) == "three" {
+			return errors.New("failed for three")
+		}
+
+		return nil
+	}
+	d := deleterFunc(func(ctx context.Context, key []byte) error {
+		return f(ctx, key)
+	})
+
+	ii := cache.NewInvalidationIndex(d)
+
+	ii.AddInvalidationLabels([]byte("one"), "numbers", "len3")
+	ii.AddInvalidationLabels([]byte("two"), "numbers", "len3")
+	ii.AddInvalidationLabels([]byte("three"), "numbers", "len5")
+	ii.AddInvalidationLabels([]byte("four"), "numbers", "len4")
+	ii.AddInvalidationLabels([]byte("five"), "numbers", "len4")
+
+	n, err := ii.InvalidateByLabels(context.Background(), "len3", "len5", "numbers")
+
+	assert.Equal(t, 2, n)
+	assert.EqualError(t, err, "failed for three")
+
+	n, err = ii.InvalidateByLabels(context.Background(), "len3", "len5", "numbers")
+
+	assert.Equal(t, 0, n)
+	assert.EqualError(t, err, "failed for three")
+
+	f = func(ctx context.Context, key []byte) error {
+		return nil
+	}
+
+	n, err = ii.InvalidateByLabels(context.Background(), "len3", "len5", "numbers")
+
+	assert.Equal(t, 3, n)
+	assert.NoError(t, err)
+}

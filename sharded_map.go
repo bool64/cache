@@ -33,6 +33,8 @@ type ShardedMap struct {
 }
 
 type shardedMap struct {
+	*InvalidationIndex
+
 	hashedBuckets [shards]hashedBucket
 
 	t *Trait
@@ -65,6 +67,8 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 		t.Len = c.Len
 		t.Evict = evict
 	})
+
+	c.InvalidationIndex = NewInvalidationIndex(c)
 
 	runtime.SetFinalizer(C, func(m *ShardedMap) {
 		close(m.t.Closed)

@@ -24,6 +24,8 @@ type SyncMap struct {
 }
 
 type syncMap struct {
+	*InvalidationIndex
+
 	data sync.Map
 
 	t *Trait
@@ -52,6 +54,8 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		t.Len = c.Len
 		t.Evict = evict
 	})
+
+	c.InvalidationIndex = NewInvalidationIndex(c)
 
 	runtime.SetFinalizer(C, func(m *SyncMap) {
 		close(m.t.Closed)

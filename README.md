@@ -145,6 +145,9 @@ appended to `Invalidator.Callbacks` and it will be triggered
 on [`Invalidator.Invalidate`](https://pkg.go.dev/github.com/bool64/cache#Invalidator.Invalidate). This may be useful as
 a debugging/firefighting tool.
 
+Deleting of multiple related (labeled) items can be done with 
+[`InvalidationIndex`](https://pkg.go.dev/github.com/bool64/cache#InvalidationIndex).
+
 [`Len`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.Len) returns currently available number of entries (
 including expired).
 
