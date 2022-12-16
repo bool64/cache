@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand"
 	"runtime"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 )
@@ -48,23 +49,8 @@ func (c *Trait) janitor() {
 
 		select {
 		case <-time.After(interval):
-			if c.DeleteExpired != nil {
-				expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
-				c.DeleteExpired(expirationBoundary)
-			}
+			c.invokeCleanup()
 
-			if c.Evict != nil && (c.heapInUseOverflow() || c.countOverflow()) {
-				frac := c.Config.EvictFraction
-				if frac == 0 {
-					frac = 0.1
-				}
-
-				cnt := c.Evict(frac)
-
-				if c.Stat != nil {
-					c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
-				}
-			}
 		case <-c.Closed:
 			if c.Log.logDebug != nil {
 				c.Log.logDebug(context.Background(), "closing cache janitor",
@@ -72,6 +58,40 @@ func (c *Trait) janitor() {
 			}
 
 			return
+		}
+	}
+}
+
+func (c *Trait) invokeCleanup() {
+	// Delete expired job is skipped for UnlimitedTTL with a proof of no expirations were set before.
+	// This is an optimization to avoid full scan and make eviction checks/cleanups cheap.
+	if c.DeleteExpired != nil && (c.Config.TimeToLive != UnlimitedTTL || atomic.LoadInt64(&c.expirationsSet) > 0) {
+		expirationBoundary := time.Now().Add(-c.Config.DeleteExpiredAfter)
+		c.DeleteExpired(expirationBoundary)
+	}
+
+	if c.Evict == nil {
+		return
+	}
+
+	ho := c.heapInUseOverflow()
+	co := c.countOverflow()
+	so := c.sysOverflow()
+
+	if ho || so || co {
+		frac := c.Config.EvictFraction
+		if frac == 0 {
+			frac = 0.1
+		}
+
+		cnt := c.Evict(frac)
+
+		if so {
+			debug.FreeOSMemory()
+		}
+
+		if c.Stat != nil {
+			c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
 		}
 	}
 }
@@ -85,6 +105,17 @@ func (c *Trait) heapInUseOverflow() bool {
 	runtime.ReadMemStats(&m)
 
 	return m.HeapInuse > c.Config.HeapInUseSoftLimit
+}
+
+func (c *Trait) sysOverflow() bool {
+	if c.Config.SysMemSoftLimit == 0 {
+		return false
+	}
+
+	m := runtime.MemStats{}
+	runtime.ReadMemStats(&m)
+
+	return m.Sys > c.Config.SysMemSoftLimit
 }
 
 func (c *Trait) countOverflow() bool {
@@ -106,6 +137,8 @@ type Trait struct {
 	Config Config
 	Stat   StatsTracker
 	Log    logTrait
+
+	expirationsSet int64
 }
 
 // NewTrait instantiates new Trait.
@@ -224,6 +257,10 @@ func (c *Trait) TTL(ctx context.Context) time.Duration {
 
 	if c.Config.ExpirationJitter > 0 {
 		ttl += time.Duration(float64(ttl) * c.Config.ExpirationJitter * (rand.Float64() - 0.5)) //nolint:gosec
+	}
+
+	if c.Config.TimeToLive == UnlimitedTTL && ttl != 0 {
+		atomic.AddInt64(&c.expirationsSet, 1)
 	}
 
 	return ttl
