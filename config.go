@@ -13,6 +13,11 @@ type Config struct {
 	// Name is cache instance name, used in stats and logging.
 	Name string
 
+	// ItemsCountReportInterval is items count metric report interval, default 1m.
+	ItemsCountReportInterval time.Duration
+
+	// Expiration controls.
+
 	// TimeToLive is delay before entry expiration, default 5m.
 	// Use UnlimitedTTL value to set up unlimited TTL.
 	TimeToLive time.Duration
@@ -23,24 +28,23 @@ type Config struct {
 	// DeleteExpiredJobInterval is delay between two consecutive cleanups, default 1h.
 	DeleteExpiredJobInterval time.Duration
 
-	// ItemsCountReportInterval is items count metric report interval, default 1m.
-	ItemsCountReportInterval time.Duration
-
 	// ExpirationJitter is a fraction of TTL to randomize, default 0.1.
 	// Use -1 to disable.
 	// If enabled, entry TTL will be randomly altered in bounds of ±(ExpirationJitter * TTL / 2).
 	ExpirationJitter float64
 
-	// HeapInUseSoftLimit sets heap in use threshold when eviction of most expired items will be triggered.
+	// Eviction controls.
 	//
 	// Eviction is a part of delete expired job, eviction runs at most once per delete expired job and
-	// removes most expired entries up to EvictFraction.
+	// removes a number of entries (up to EvictFraction) based on EvictionStrategy.
+
+	// HeapInUseSoftLimit sets heap in use (runtime.MemStats).HeapInuse threshold when eviction will be triggered.
 	HeapInUseSoftLimit uint64
 
-	// CountSoftLimit sets count threshold when eviction of most expired items will be triggered.
-	//
-	// Eviction is a part of delete expired job, eviction runs at most once per delete expired job and
-	// removes most expired entries up to EvictFraction.
+	// SysMemSoftLimit sets system memory (runtime.MemStats).Sys threshold when eviction will be triggered.
+	SysMemSoftLimit uint64
+
+	// CountSoftLimit sets count threshold when eviction will be triggered.
 	CountSoftLimit uint64
 
 	// EvictFraction is a fraction (0, 1] of total count of items to be evicted when resource is overused,
