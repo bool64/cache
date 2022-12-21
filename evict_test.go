@@ -34,6 +34,7 @@ type evictInterface interface {
 	ReadWriter
 	Len() int
 	evictMostExpired(evictFraction float64) int
+	evictLeastCounter(evictFraction float64) int
 }
 
 func TestShardedMap_evictHeapInuse(t *testing.T) {
@@ -224,16 +225,17 @@ func Test_LFU_eviction(t *testing.T) {
 				require.Less(t, i, 10, c.Len())
 			}
 
-			assert.LessOrEqual(t, c.Len(), 51)
+			cnt := c.Len()
+			assert.Equal(t, cnt, 50)
 
-			for i := 0; i < 51; i++ {
+			for i := 0; i < 50; i++ {
 				k := []byte(strconv.Itoa(i))
 
 				_, err := c.Read(ctx, k)
 				require.NoError(t, err, i)
 			}
 
-			for i := 51; i < 100; i++ {
+			for i := 50; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 
 				_, err := c.Read(ctx, k)
@@ -286,7 +288,7 @@ func Test_LRU_eviction(t *testing.T) {
 				require.EqualError(t, err, "missing cache item", i) // Evicted.
 			}
 
-			for i := 49; i < 100; i++ {
+			for i := 50; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 				_, err := c.Read(ctx, k)
 

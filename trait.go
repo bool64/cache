@@ -75,13 +75,21 @@ func (c *Trait) invokeCleanup() {
 	}
 
 	ho := c.heapInUseOverflow()
-	co := c.countOverflow()
+	currentCnt, co := c.countOverflow()
 	so := c.sysOverflow()
 
 	if ho || so || co {
 		frac := c.Config.EvictFraction
 		if frac == 0 {
 			frac = 0.1
+		}
+
+		// For count overflow we're updating fraction to reach the level below CountSoftLimit.
+		// This might be a more aggressive eviction in case when cache growth exceeds eviction rate (e.g.
+		// if evicting EvictFraction would still leave the count above CountSoftLimit).
+		if co {
+			targetCnt := float64(c.Config.CountSoftLimit) * (1 - frac)
+			frac = 1 - targetCnt/float64(currentCnt)
 		}
 
 		cnt := c.Evict(frac)
@@ -118,12 +126,14 @@ func (c *Trait) sysOverflow() bool {
 	return m.Sys > c.Config.SysMemSoftLimit
 }
 
-func (c *Trait) countOverflow() bool {
+func (c *Trait) countOverflow() (int, bool) {
 	if c.Config.CountSoftLimit == 0 || c.Len == nil {
-		return false
+		return 0, false
 	}
 
-	return c.Len() > int(c.Config.CountSoftLimit)
+	cnt := c.Len()
+
+	return cnt, cnt > int(c.Config.CountSoftLimit)
 }
 
 // Trait is a shared trait, useful to implement ReadWriter.
