@@ -51,25 +51,27 @@ func (i *Invalidator) Invalidate(ctx context.Context) error {
 type InvalidationIndex struct {
 	deleter Deleter
 
-	mu          sync.Mutex
-	labeledKeys map[string][]string
+	labeledKeys *shardedMap
+	//mu          sync.Mutex
+	//labeledKeys map[string][]string
 }
 
 // NewInvalidationIndex creates new instance of label-based invalidator.
 func NewInvalidationIndex(deleter Deleter) *InvalidationIndex {
 	return &InvalidationIndex{
-		deleter:     deleter,
-		labeledKeys: make(map[string][]string),
+		deleter: deleter,
+		//labeledKeys: make(map[string][]string),
 	}
 }
 
 // AddInvalidationLabels registers invalidation labels to a cache key.
 func (i *InvalidationIndex) AddInvalidationLabels(key []byte, labels ...string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	//i.mu.Lock()
+	//defer i.mu.Unlock()
 
 	ks := string(key)
 	for _, label := range labels {
+		i.labeledKeys.Load(key)
 		i.labeledKeys[label] = append(i.labeledKeys[label], ks)
 	}
 }

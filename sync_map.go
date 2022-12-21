@@ -74,6 +74,9 @@ func (c *syncMap) Read(ctx context.Context, key []byte) (interface{}, error) {
 		return c.t.PrepareRead(ctx, cacheEntry.(*TraitEntry), true)
 	}
 
+	c.data.LoadOrStore()
+	c.data.LoadAndDelete()
+
 	return c.t.PrepareRead(ctx, nil, false)
 }
 

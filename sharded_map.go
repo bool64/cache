@@ -273,6 +273,8 @@ func (c *shardedMap) Walk(walkFn func(e Entry) error) (int, error) {
 func (c *ShardedMap) Dump(w io.Writer) (int, error) {
 	encoder := gob.NewEncoder(w)
 
+	c.InvalidationIndex.labeledKeys
+
 	return c.Walk(func(e Entry) error {
 		return encoder.Encode(e)
 	})
