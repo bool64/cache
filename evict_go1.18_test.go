@@ -228,14 +228,14 @@ func Test_generic_LFU_eviction(t *testing.T) {
 
 			assert.LessOrEqual(t, c.Len(), 51)
 
-			for i := 0; i < 51; i++ {
+			for i := 0; i < 50; i++ {
 				k := []byte(strconv.Itoa(i))
 
 				_, err := c.Read(ctx, k)
 				require.NoError(t, err, i)
 			}
 
-			for i := 51; i < 100; i++ {
+			for i := 50; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 
 				_, err := c.Read(ctx, k)
@@ -279,16 +279,16 @@ func Test_generic_LRU_eviction(t *testing.T) {
 				require.Less(t, i, 10, c.Len())
 			}
 
-			assert.LessOrEqual(t, c.Len(), 51)
+			assert.Equal(t, c.Len(), 50)
 
-			for i := 0; i < 49; i++ {
+			for i := 0; i < 50; i++ {
 				k := []byte(strconv.Itoa(i))
 				_, err := c.Read(ctx, k)
 
 				require.EqualError(t, err, "missing cache item", i) // Evicted.
 			}
 
-			for i := 49; i < 100; i++ {
+			for i := 50; i < 100; i++ {
 				k := []byte(strconv.Itoa(i))
 				_, err := c.Read(ctx, k)
 

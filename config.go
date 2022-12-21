@@ -45,6 +45,8 @@ type Config struct {
 	SysMemSoftLimit uint64
 
 	// CountSoftLimit sets count threshold when eviction will be triggered.
+	// As opposed to memory soft limits, when count limit is exceeded, eviction will remove items to achieve
+	// the level of CountSoftLimit*(1-EvictFraction), which may be more items that EvictFraction defines.
 	CountSoftLimit uint64
 
 	// EvictFraction is a fraction (0, 1] of total count of items to be evicted when resource is overused,
