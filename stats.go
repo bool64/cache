@@ -28,6 +28,9 @@ const (
 
 	// MetricEvict is a name of metric to count evictions.
 	MetricEvict = "cache_evict"
+
+	// MetricEvictionElapsedSeconds is a name of metric to count eviction job time.
+	MetricEvictionElapsedSeconds = "cache_eviction_elapsed_seconds"
 )
 
 // NewStatsTracker creates logger instance from tracking functions.

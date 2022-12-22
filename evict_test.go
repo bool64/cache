@@ -188,112 +188,106 @@ func TestShardedMap_evictHeapInuse_noTTL(t *testing.T) {
 	}
 }
 
-func Test_LFU_eviction(t *testing.T) {
-	for _, c := range backends(func(cfg *Config) {
-		cfg.EvictionStrategy = EvictLeastFrequentlyUsed
-		cfg.EvictFraction = 0.5
-		cfg.CountSoftLimit = 100
-		cfg.DeleteExpiredJobInterval = time.Millisecond
-	}) {
-		t.Run(fmt.Sprintf("%T", c), func(t *testing.T) {
-			ctx := context.Background()
+func Test_eviction(t *testing.T) {
+	keptMin, keptMax := 0, 50
+	evictedMin, evictedMax := 50, 100
 
-			for i := 0; i < 100; i++ {
-				k := []byte(strconv.Itoa(i))
-				require.NoError(t, c.Write(ctx, k, i))
+	var (
+		mu sync.Mutex
+		l  func() int
+	)
 
-				_, err := c.Read(ctx, k)
-				require.NoError(t, err)
+	for _, option := range []func(cfg *Config){
+		func(cfg *Config) {
+			cfg.EvictionStrategy = EvictLeastFrequentlyUsed
+			cfg.CountSoftLimit = 100
+			cfg.Name = "LFU"
+		},
+		func(cfg *Config) {
+			cfg.EvictionStrategy = EvictLeastRecentlyUsed
+			cfg.CountSoftLimit = 100
+			cfg.Name = "LRU"
 
-				for j := 100 - i; j > 0; j-- {
-					_, err = c.Read(ctx, k)
+			keptMin, keptMax = 50, 100
+			evictedMin, evictedMax = 0, 50
+		},
+		func(cfg *Config) {
+			cfg.EvictionStrategy = EvictLeastFrequentlyUsed
+			cfg.EvictionNeeded = func() bool {
+				mu.Lock()
+				defer mu.Unlock()
+
+				return l() > 100
+			}
+			cfg.EvictFraction = 0.51
+
+			cfg.Name = "EvictionNeeded"
+		},
+	} {
+		var name string
+
+		keptMin, keptMax = 0, 50
+		evictedMin, evictedMax = 50, 100
+
+		for _, c := range backends(func(cfg *Config) {
+			cfg.EvictFraction = 0.5
+			cfg.DeleteExpiredJobInterval = time.Millisecond
+			option(cfg)
+			name = cfg.Name
+		}) {
+			t.Run(fmt.Sprintf("%T_%s", c, name), func(t *testing.T) {
+				mu.Lock()
+				l = c.Len
+				mu.Unlock()
+
+				ctx := context.Background()
+
+				for i := 0; i < 100; i++ {
+					k := []byte(strconv.Itoa(i))
+					require.NoError(t, c.Write(ctx, k, i))
+
+					_, err := c.Read(ctx, k)
 					require.NoError(t, err)
-				}
-			}
 
-			// Preparing for eviction.
-			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
+					for j := 100 - i; j > 0; j-- {
+						_, err = c.Read(ctx, k)
+						require.NoError(t, err)
+					}
 
-			i := 0
-			for {
-				i++
-				time.Sleep(10 * time.Millisecond)
-				if c.Len() <= 100 {
-					break
+					time.Sleep(time.Microsecond)
 				}
 
-				require.Less(t, i, 10, c.Len())
-			}
+				// Preparing for eviction.
+				require.NoError(t, c.Write(ctx, []byte("100!"), 100))
 
-			cnt := c.Len()
-			assert.Equal(t, cnt, 50)
+				i := 0
+				for {
+					i++
+					time.Sleep(10 * time.Millisecond)
+					if c.Len() <= 100 {
+						break
+					}
 
-			for i := 0; i < 50; i++ {
-				k := []byte(strconv.Itoa(i))
-
-				_, err := c.Read(ctx, k)
-				require.NoError(t, err, i)
-			}
-
-			for i := 50; i < 100; i++ {
-				k := []byte(strconv.Itoa(i))
-
-				_, err := c.Read(ctx, k)
-				assert.EqualError(t, err, "missing cache item", i) // Evicted.
-			}
-		})
-	}
-}
-
-func Test_LRU_eviction(t *testing.T) {
-	for _, c := range backends(func(cfg *Config) {
-		cfg.EvictionStrategy = EvictLeastRecentlyUsed
-		cfg.EvictFraction = 0.5
-		cfg.CountSoftLimit = 100
-		cfg.DeleteExpiredJobInterval = time.Millisecond
-	}) {
-		t.Run(fmt.Sprintf("%T", c), func(t *testing.T) {
-			ctx := context.Background()
-
-			for i := 0; i < 100; i++ {
-				k := []byte(strconv.Itoa(i))
-				require.NoError(t, c.Write(ctx, k, i))
-
-				_, err := c.Read(ctx, k)
-				require.NoError(t, err)
-
-				time.Sleep(time.Microsecond)
-			}
-
-			// Preparing for eviction.
-			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
-
-			i := 0
-			for {
-				i++
-				time.Sleep(10 * time.Millisecond)
-				if c.Len() <= 100 {
-					break
+					require.Less(t, i, 10, c.Len())
 				}
 
-				require.Less(t, i, 10, c.Len())
-			}
+				cnt := c.Len()
+				assert.Equal(t, 50, cnt)
 
-			assert.LessOrEqual(t, c.Len(), 51)
+				for i := keptMin; i < keptMax; i++ {
+					k := []byte(strconv.Itoa(i))
 
-			for i := 0; i < 49; i++ {
-				k := []byte(strconv.Itoa(i))
-				_, err := c.Read(ctx, k)
+					_, err := c.Read(ctx, k)
+					require.NoError(t, err, i)
+				}
 
-				require.EqualError(t, err, "missing cache item", i) // Evicted.
-			}
+				for i := evictedMin; i < evictedMax; i++ {
+					k := []byte(strconv.Itoa(i))
 
-			for i := 50; i < 100; i++ {
-				k := []byte(strconv.Itoa(i))
-				_, err := c.Read(ctx, k)
-
-				require.NoError(t, err) // Kept.
-			}
-		})
+					_, err := c.Read(ctx, k)
+					assert.EqualError(t, err, "missing cache item", i) // Evicted.
+				}
+			})
+		}
 	}
 }

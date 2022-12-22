@@ -36,7 +36,8 @@ type Config struct {
 	// Eviction controls.
 	//
 	// Eviction is a part of delete expired job, eviction runs at most once per delete expired job and
-	// removes a number of entries (up to EvictFraction) based on EvictionStrategy.
+	// removes a number of entries (up to EvictFraction) based on EvictionStrategy. Eviction only runs if
+	// any of soft limits is breached or if user-defined EvictionNeeded returns true.
 
 	// HeapInUseSoftLimit sets heap in use (runtime.MemStats).HeapInuse threshold when eviction will be triggered.
 	HeapInUseSoftLimit uint64
@@ -48,6 +49,10 @@ type Config struct {
 	// As opposed to memory soft limits, when count limit is exceeded, eviction will remove items to achieve
 	// the level of CountSoftLimit*(1-EvictFraction), which may be more items that EvictFraction defines.
 	CountSoftLimit uint64
+
+	// EvictionNeeded is a user-defined function to decide whether eviction is necessary.
+	// If true is returned, eviction cycle will happen.
+	EvictionNeeded func() bool
 
 	// EvictFraction is a fraction (0, 1] of total count of items to be evicted when resource is overused,
 	// default 0.1 (10% of items).
