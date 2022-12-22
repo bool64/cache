@@ -74,11 +74,12 @@ func (c *Trait) invokeCleanup() {
 		return
 	}
 
+	start := time.Now()
 	ho := c.heapInUseOverflow()
 	currentCnt, co := c.countOverflow()
 	so := c.sysOverflow()
 
-	if ho || so || co {
+	if ho || so || co || (c.Config.EvictionNeeded != nil && c.Config.EvictionNeeded()) {
 		frac := c.Config.EvictFraction
 		if frac == 0 {
 			frac = 0.1
@@ -100,6 +101,8 @@ func (c *Trait) invokeCleanup() {
 
 		if c.Stat != nil {
 			c.Stat.Add(context.Background(), MetricEvict, float64(cnt), "name", c.Config.Name)
+			c.Stat.Add(context.Background(), MetricEvictionElapsedSeconds, time.Since(start).Seconds(),
+				"name", c.Config.Name)
 		}
 	}
 }
