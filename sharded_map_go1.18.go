@@ -83,32 +83,17 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (c *shardedMapOf[V]) Load(key []byte) (val V, loaded bool) {
-	h := xxhash.Sum64(key)
-	b := &c.hashedBuckets[h%shards]
-	b.RLock()
-	defer b.RUnlock()
-
-	cacheEntry, found := b.data[h]
-
-	if !found || !bytes.Equal(cacheEntry.K, key) {
-		return val, false
+	v, err := c.Read(bgCtx, key)
+	if err != nil {
+		return val, true
 	}
 
-	return cacheEntry.V, true
+	return v, false
 }
 
 // Store sets the value for a key.
 func (c *shardedMapOf[V]) Store(key []byte, val V) {
-	h := xxhash.Sum64(key)
-	b := &c.hashedBuckets[h%shards]
-	b.Lock()
-	defer b.Unlock()
-
-	// Copy key to allow mutations of original argument.
-	k := make([]byte, len(key))
-	copy(k, key)
-
-	b.data[h] = &TraitEntryOf[V]{V: val, K: k}
+	_ = c.Write(bgCtx, key, val)
 }
 
 // Read gets value.

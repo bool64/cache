@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var bgCtx = context.Background()
+
 func (c *Trait) reportItemsCount() {
 	for {
 		interval := c.Config.ItemsCountReportInterval
