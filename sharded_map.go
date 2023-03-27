@@ -91,7 +91,13 @@ func (c *shardedMap) Load(key []byte) (interface{}, bool) {
 
 // Store sets the value for a key.
 func (c *shardedMap) Store(key []byte, val interface{}) {
-	_ = c.Write(bgCtx, key, val)
+	err := c.Write(bgCtx, key, val)
+	if err != nil && c.t.Log.logError != nil {
+		c.t.Log.logError(bgCtx, "failed to store cache entry",
+			"error", err,
+			"key", key,
+			"name", c.t.Config.Name)
+	}
 }
 
 // Read gets value.
