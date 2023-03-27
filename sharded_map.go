@@ -81,32 +81,23 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 // value is present.
 // The ok result indicates whether value was found in the map.
 func (c *shardedMap) Load(key []byte) (interface{}, bool) {
-	h := xxhash.Sum64(key)
-	b := &c.hashedBuckets[h%shards]
-	b.RLock()
-	defer b.RUnlock()
-
-	cacheEntry, found := b.data[h]
-
-	if !found || !bytes.Equal(cacheEntry.K, key) {
+	v, err := c.Read(bgCtx, key)
+	if err != nil {
 		return nil, false
 	}
 
-	return cacheEntry.V, true
+	return v, true
 }
 
 // Store sets the value for a key.
 func (c *shardedMap) Store(key []byte, val interface{}) {
-	h := xxhash.Sum64(key)
-	b := &c.hashedBuckets[h%shards]
-	b.Lock()
-	defer b.Unlock()
-
-	// Copy key to allow mutations of original argument.
-	k := make([]byte, len(key))
-	copy(k, key)
-
-	b.data[h] = &TraitEntry{V: val, K: k}
+	err := c.Write(bgCtx, key, val)
+	if err != nil && c.t.Log.logError != nil {
+		c.t.Log.logError(bgCtx, "failed to store cache entry",
+			"error", err,
+			"key", key,
+			"name", c.t.Config.Name)
+	}
 }
 
 // Read gets value.
