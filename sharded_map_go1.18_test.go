@@ -108,3 +108,21 @@ cache_hit{name="test"} 1
 cache_items{name="test"} 0
 cache_write{name="test"} 1`, st.Metrics())
 }
+
+func TestNewShardedMapOf_Load_Store(t *testing.T) {
+	logger := ctxd.LoggerMock{}
+	st := stats.TrackerMock{}
+
+	c := cache.NewShardedMapOf[string](func(config *cache.Config) {
+		config.Logger = &logger
+		config.Stats = &st
+		config.Name = "test"
+		config.TimeToLive = time.Hour
+	})
+
+	c.Store([]byte("foo"), "bar")
+	v, loaded := c.Load([]byte("foo"))
+	assert.True(t, loaded)
+	assert.Equal(t, "bar", v)
+	assert.Equal(t, 1, c.Len())
+}
