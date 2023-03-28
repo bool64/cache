@@ -85,10 +85,10 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 func (c *shardedMapOf[V]) Load(key []byte) (val V, loaded bool) {
 	v, err := c.Read(bgCtx, key)
 	if err != nil {
-		return val, true
+		return val, false
 	}
 
-	return v, false
+	return v, true
 }
 
 // Store sets the value for a key.
