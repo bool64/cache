@@ -43,7 +43,11 @@ v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (interface{}, e
 Or, starting with go1.18 you can use generic API.
 
 ```go
-f := cache.NewFailoverOf[Dog]()
+f := cache.NewFailoverOf[Dog](func(cfg *cache.FailoverConfigOf[Dog]) {
+    // Using last 30 seconds of 5m TTL for background update.
+    cfg.MaxStaleness = 30 * time.Second
+    cfg.BackendConfig.TimeToLive = 5*time.Minute - cfg.MaxStaleness
+})
 
 // Get value from cache or the function.
 v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (Dog, error) {

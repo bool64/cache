@@ -21,9 +21,13 @@ type FailoverConfig struct {
 	BackendConfig Config
 
 	// FailedUpdateTTL is ttl of failed build cache, default 20s, -1 disables errors cache.
+	// Errors cache prevents application from pressuring a failing data source.
 	FailedUpdateTTL time.Duration
 
 	// UpdateTTL is a time interval to retry update, default 1 minute.
+	// When stale value is being updated to a new one, current (stale) cache entry
+	// is refreshed in cache with this TTL. This unblocks other consumers with stale value,
+	// instead of blocking them to wait for a new one.
 	UpdateTTL time.Duration
 
 	// SyncUpdate disables update in background, default is background update with stale value served.
