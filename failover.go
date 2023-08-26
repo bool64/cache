@@ -39,7 +39,7 @@ type FailoverConfig struct {
 	// If value has expired longer than this duration it won't be served unless value update failure.
 	MaxStaleness time.Duration
 
-	// FailHard disables serving of stale value in case up update failure.
+	// FailHard disables serving of stale value in case of update failure.
 	FailHard bool
 
 	// Logger collects messages with context.
