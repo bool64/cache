@@ -49,35 +49,85 @@ func (i *Invalidator) Invalidate(ctx context.Context) error {
 
 // InvalidationIndex keeps index of keys labeled for future invalidation.
 type InvalidationIndex struct {
-	deleter Deleter
+	deleters map[string][]Deleter // By name.
 
-	mu          sync.Mutex
-	labeledKeys map[string][]string
+	mu                sync.Mutex
+	labeledKeysByName map[string]map[string][]string
 }
 
 // NewInvalidationIndex creates new instance of label-based invalidator.
-func NewInvalidationIndex(deleter Deleter) *InvalidationIndex {
+func NewInvalidationIndex(deleters ...Deleter) *InvalidationIndex {
+	ds := make(map[string][]Deleter)
+
+	if len(deleters) > 0 {
+		ds["default"] = deleters
+	}
+
 	return &InvalidationIndex{
-		deleter:     deleter,
-		labeledKeys: make(map[string][]string),
+		deleters:          ds,
+		labeledKeysByName: make(map[string]map[string][]string), // name -> labeledKeys
 	}
 }
 
-// AddInvalidationLabels registers invalidation labels to a cache key.
-func (i *InvalidationIndex) AddInvalidationLabels(key []byte, labels ...string) {
+func (i *InvalidationIndex) AddCache(name string, deleter Deleter) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
+	i.deleters[name] = []Deleter{deleter}
+}
+
+// AddInvalidationLabels registers invalidation labels to a cache key in default cache.
+func (i *InvalidationIndex) AddInvalidationLabels(key []byte, labels ...string) {
+	i.AddLabels("default", key, labels...)
+}
+
+// AddLabels registers invalidation labels to a cache key.
+func (i *InvalidationIndex) AddLabels(cacheName string, key []byte, labels ...string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	labeledKeys := i.labeledKeysByName[cacheName]
+	if labeledKeys == nil {
+		labeledKeys = make(map[string][]string)
+		i.labeledKeysByName[cacheName] = labeledKeys
+	}
+
 	ks := string(key)
 	for _, label := range labels {
-		i.labeledKeys[label] = append(i.labeledKeys[label], ks)
+		labeledKeys[label] = append(labeledKeys[label], ks)
 	}
 }
 
 // InvalidateByLabels deletes keys from cache that have any of provided labels and returns number of deleted entries.
 // If delete fails, function puts unprocessed keys back in the index and returns.
 func (i *InvalidationIndex) InvalidateByLabels(ctx context.Context, labels ...string) (int, error) {
-	cutKeys := i.cutKeys(labels...)
+	i.mu.Lock()
+
+	labeledKeysByName := make(map[string]map[string][]string)
+	deleters := make(map[string][]Deleter)
+
+	for name, labeledKeys := range i.labeledKeysByName {
+		labeledKeysByName[name] = labeledKeys
+		deleters[name] = i.deleters[name]
+	}
+
+	i.mu.Unlock()
+
+	cnt := 0
+	for name, labeledKeys := range i.labeledKeysByName {
+		n, err := i.invalidateByLabels(ctx, labeledKeys, deleters[name], labels...)
+		cnt += n
+
+		if err != nil {
+			return cnt, err
+		}
+	}
+
+	return cnt, nil
+}
+
+func (i *InvalidationIndex) invalidateByLabels(ctx context.Context, labeledKeys map[string][]string, deleters []Deleter, labels ...string) (int, error) {
+	cutKeys := i.cutKeys(labeledKeys, labels...)
 	deleted := make(map[string]bool) // Deduplication index to avoid multiple deletes for keys with multiple labels.
 
 	defer func() {
@@ -95,7 +145,7 @@ func (i *InvalidationIndex) InvalidateByLabels(ctx context.Context, labels ...st
 					}
 				}
 
-				i.labeledKeys[label] = append(i.labeledKeys[label], keys...)
+				labeledKeys[label] = append(labeledKeys[label], keys...)
 			}
 		}
 	}()
@@ -108,18 +158,18 @@ func (i *InvalidationIndex) InvalidateByLabels(ctx context.Context, labels ...st
 				continue
 			}
 
-			err := i.deleter.Delete(ctx, []byte(k))
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					continue
+			for _, d := range deleters {
+				err := d.Delete(ctx, []byte(k))
+				if err != nil {
+					if !errors.Is(err, ErrNotFound) {
+						return cnt, err
+					}
+				} else {
+					cnt++
 				}
-
-				return cnt, err
 			}
 
 			deleted[k] = true
-
-			cnt++
 		}
 
 		delete(cutKeys, label)
@@ -128,15 +178,15 @@ func (i *InvalidationIndex) InvalidateByLabels(ctx context.Context, labels ...st
 	return cnt, nil
 }
 
-func (i *InvalidationIndex) cutKeys(labels ...string) map[string][]string {
+func (i *InvalidationIndex) cutKeys(labeledKeys map[string][]string, labels ...string) map[string][]string {
 	res := make(map[string][]string, len(labels))
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	for _, label := range labels {
-		res[label] = i.labeledKeys[label]
-		delete(i.labeledKeys, label)
+		res[label] = labeledKeys[label]
+		delete(labeledKeys, label)
 	}
 
 	return res
