@@ -25,7 +25,7 @@ type Real struct {
 	Calls int
 }
 
-func (s *Real) GetByID(ctx context.Context, country string, id int) (Value, error) {
+func (s *Real) GetByID(_ context.Context, country string, id int) (Value, error) {
 	s.Calls++
 
 	if id == 0 {

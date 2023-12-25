@@ -30,7 +30,7 @@ type ReadWriterOf[V any] interface {
 //
 // Count of processed entries is returned.
 type WalkerOf[V any] interface {
-	Walk(func(entry EntryOf[V]) error) (int, error)
+	Walk(cb func(entry EntryOf[V]) error) (int, error)
 }
 
 // EntryOf is cache entry with key and value.

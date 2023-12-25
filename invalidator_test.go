@@ -3,12 +3,55 @@ package cache_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/bool64/cache"
 	"github.com/stretchr/testify/assert"
 )
+
+func ExampleNewInvalidationIndex() {
+	// Invalidation index maintains lists of keys in multiple cache instances with shared labels.
+	// For example, when you were building cache value, you used resources that can change in the future.
+	// You can add a resource label to the new cache key (separate label for each resource), so that later,
+	// when resource is changed, invalidation index can be asked to drop cached entries associated
+	// with respective label.
+	i := cache.NewInvalidationIndex()
+
+	cache1 := cache.NewShardedMap()
+	cache2 := cache.NewShardedMap()
+
+	// Each cache instance, that is subject for invalidation needs to be added with unique name.
+	i.AddCache("one", cache1)
+	i.AddCache("two", cache2)
+
+	ctx := context.Background()
+	_ = cache1.Write(ctx, []byte("keyA"), "A1")
+	_ = cache1.Write(ctx, []byte("keyB"), "B1")
+
+	_ = cache2.Write(ctx, []byte("keyA"), "A2")
+	_ = cache2.Write(ctx, []byte("keyB"), "B2")
+
+	// Labeling keyA in both caches.
+	i.AddLabels("one", []byte("keyA"), "A")
+	i.AddLabels("two", []byte("keyA"), "A")
+
+	// Labeling keyA only in one cache.
+	i.AddLabels("one", []byte("keyB"), "B")
+
+	// Invalidation will delete keyA in both cache one and two.
+	n, _ := i.InvalidateByLabels(ctx, "A")
+	fmt.Println("Keys deleted for A:", n)
+
+	// Invalidation will not affect keyB in cache two, but will delete in cache one.
+	n, _ = i.InvalidateByLabels(ctx, "B")
+	fmt.Println("Keys deleted for B:", n)
+
+	// Output:
+	// Keys deleted for A: 2
+	// Keys deleted for B: 1
+}
 
 func TestInvalidator_Invalidate(t *testing.T) {
 	cache1 := cache.NewShardedMap()
@@ -37,10 +80,10 @@ func TestInvalidator_Invalidate(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	_, err = cache1.Read(ctx, []byte("key"))
-	assert.True(t, errors.Is(err, cache.ErrExpired))
+	assert.ErrorIs(t, err, cache.ErrExpired)
 
 	_, err = cache2.Read(ctx, []byte("key"))
-	assert.True(t, errors.Is(err, cache.ErrExpired))
+	assert.ErrorIs(t, err, cache.ErrExpired)
 
 	err = i.Invalidate(ctx)
 	assert.Error(t, err) // already invalidated
