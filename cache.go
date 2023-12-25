@@ -50,7 +50,7 @@ type Entry interface {
 //
 // Count of processed entries is returned.
 type Walker interface {
-	Walk(func(entry Entry) error) (int, error)
+	Walk(cb func(entry Entry) error) (int, error)
 }
 
 // Dumper dumps cache entries in binary format.

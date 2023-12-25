@@ -370,7 +370,7 @@ func TestFailover_Get_updateErr(t *testing.T) {
 			assert.Equal(t, 123, v)
 
 			ex, ok := be.(interface {
-				ExpireAll(context.Context)
+				ExpireAll(ctx context.Context)
 			})
 
 			if !ok {
@@ -419,7 +419,7 @@ func TestFailover_Get_mutability(t *testing.T) {
 			assert.NoError(t, err)
 
 			ex, ok := be.(interface {
-				ExpireAll(context.Context)
+				ExpireAll(ctx context.Context)
 			})
 
 			if !ok {

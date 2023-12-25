@@ -80,10 +80,10 @@ func TestInvalidator_Invalidate(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	_, err = cache1.Read(ctx, []byte("key"))
-	assert.True(t, errors.Is(err, cache.ErrExpired))
+	assert.ErrorIs(t, err, cache.ErrExpired)
 
 	_, err = cache2.Read(ctx, []byte("key"))
-	assert.True(t, errors.Is(err, cache.ErrExpired))
+	assert.ErrorIs(t, err, cache.ErrExpired)
 
 	err = i.Invalidate(ctx)
 	assert.Error(t, err) // already invalidated
