@@ -69,6 +69,7 @@ func NewInvalidationIndex(deleters ...Deleter) *InvalidationIndex {
 	}
 }
 
+// AddCache adds a named instance of cache with deletable entries.
 func (i *InvalidationIndex) AddCache(name string, deleter Deleter) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -114,6 +115,7 @@ func (i *InvalidationIndex) InvalidateByLabels(ctx context.Context, labels ...st
 	i.mu.Unlock()
 
 	cnt := 0
+
 	for name, labeledKeys := range i.labeledKeysByName {
 		n, err := i.invalidateByLabels(ctx, labeledKeys, deleters[name], labels...)
 		cnt += n
