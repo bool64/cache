@@ -74,7 +74,7 @@ func (i *InvalidationIndex) AddCache(name string, deleter Deleter) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	i.deleters[name] = []Deleter{deleter}
+	i.deleters[name] = append(i.deleters[name], deleter)
 }
 
 // AddInvalidationLabels registers invalidation labels to a cache key in default cache.
