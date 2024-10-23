@@ -21,10 +21,14 @@ func ExampleNewInvalidationIndex() {
 
 	cache1 := cache.NewShardedMap()
 	cache2 := cache.NewShardedMap()
+	cache2a := cache.NewShardedMap()
 
-	// Each cache instance, that is subject for invalidation needs to be added with unique name.
+	// Each cache instance, that is subject for invalidation needs to be added with a name.
 	i.AddCache("one", cache1)
+
+	// Multiple instances can share same name.
 	i.AddCache("two", cache2)
+	i.AddCache("two", cache2a)
 
 	ctx := context.Background()
 	_ = cache1.Write(ctx, []byte("keyA"), "A1")
@@ -32,6 +36,9 @@ func ExampleNewInvalidationIndex() {
 
 	_ = cache2.Write(ctx, []byte("keyA"), "A2")
 	_ = cache2.Write(ctx, []byte("keyB"), "B2")
+
+	_ = cache2a.Write(ctx, []byte("keyA"), "A2")
+	_ = cache2a.Write(ctx, []byte("keyB"), "B2")
 
 	// Labeling keyA in both caches.
 	i.AddLabels("one", []byte("keyA"), "A")
@@ -49,7 +56,7 @@ func ExampleNewInvalidationIndex() {
 	fmt.Println("Keys deleted for B:", n)
 
 	// Output:
-	// Keys deleted for A: 2
+	// Keys deleted for A: 3
 	// Keys deleted for B: 1
 }
 
