@@ -26,19 +26,20 @@ func BenchmarkConcurrentBaseline(b *testing.B) {
 	runners = append(runners,
 		benchmark.RistrettoBaseline{},
 		benchmark.XsyncBaseline{},
-		benchmark.PatrickmnBaseline{},
-		benchmark.BigcacheBaseline{Encoding: enc},
-		benchmark.FreecacheBaseline{Encoding: enc},
+		benchmark.OtterBaseline{},
+		//benchmark.PatrickmnBaseline{},
+		//benchmark.BigcacheBaseline{Encoding: enc},
+		//benchmark.FreecacheBaseline{Encoding: enc},
 		benchmark.FastcacheBaseline{Encoding: enc},
 	)
 
 	bench.Concurrently(b, []bench.Scenario{
-		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: runners},                     // Fastest single-threaded mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: runners}, // Fastest mode.
+		//{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: runners},                     // Fastest single-threaded mode.
+		//{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: runners}, // Fastest mode.
 		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0.1, Runners: runners},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: runners},
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners},
-		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners}, // Slowest mode.
+		//{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 1, Runners: runners},
+		//{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners},
+		//{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: runners}, // Slowest mode.
 	})
 }
 
