@@ -10,8 +10,10 @@ import (
 // NoOpOf is a ReadWriterOf stub.
 type NoOpOf[V any] struct{}
 
-var _ ReadWriterOf[int] = NoOpOf[int]{}
-var _ Deleter = NoOpOf[int]{}
+var (
+	_ ReadWriterOf[int] = NoOpOf[int]{}
+	_ Deleter           = NoOpOf[int]{}
+)
 
 // Write does nothing.
 func (NoOpOf[V]) Write(_ context.Context, _ []byte, _ V) error {

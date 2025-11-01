@@ -2,9 +2,6 @@ package benchmark
 
 import (
 	"context"
-	"github.com/bool64/cache"
-	"github.com/bool64/cache/bench"
-	"golang.org/x/sync/singleflight"
 	"runtime"
 	"strconv"
 	"sync"
@@ -12,6 +9,10 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/bool64/cache"
+	"github.com/bool64/cache/bench"
+	"golang.org/x/sync/singleflight"
 )
 
 var sfSleep = 10 * time.Microsecond
