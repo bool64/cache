@@ -1,23 +1,24 @@
 package benchmark
 
 import (
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/bool64/cache/bench"
+	"github.com/maypok86/otter"
+	"github.com/stretchr/testify/require"
 	"strconv"
 	"testing"
-
-	"github.com/bool64/cache/bench"
 )
 
-// XsyncBaseline is a benchmark runner.
-type XsyncBaseline struct {
-	c           *xsync.Map
+// OtterBaseline is a benchmark runner.
+type OtterBaseline struct {
+	c           otter.Cache[string, bench.SmallCachedValue]
 	cardinality int
 }
 
-func (r XsyncBaseline) Make(b *testing.B, cardinality int) (bench.Runner, string) {
+func (r OtterBaseline) Make(b *testing.B, cardinality int) (bench.Runner, string) {
 	b.Helper()
-
-	c := xsync.NewMap()
+	c, err := otter.MustBuilder[string, bench.SmallCachedValue](5 * cardinality).
+		Build()
+	require.NoError(b, err)
 
 	buf := make([]byte, 0)
 
@@ -27,16 +28,16 @@ func (r XsyncBaseline) Make(b *testing.B, cardinality int) (bench.Runner, string
 		buf = append(buf[:0], []byte(bench.KeyPrefix)...)
 		buf = append(buf, []byte(strconv.Itoa(i))...)
 
-		c.Store(string(buf), bench.MakeCachedValue(i))
+		c.Set(string(buf), bench.MakeCachedValue(i))
 	}
 
-	return XsyncBaseline{
+	return OtterBaseline{
 		c:           c,
 		cardinality: cardinality,
-	}, "xsync.Map-base"
+	}, "otter.Map-base"
 }
 
-func (r XsyncBaseline) Run(b *testing.B, cnt int, writeEvery int) {
+func (r OtterBaseline) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
 	buf := make([]byte, 0, 10)
@@ -54,15 +55,15 @@ func (r XsyncBaseline) Run(b *testing.B, cnt int, writeEvery int) {
 
 			buf = append(buf, 'n') // Insert new key.
 
-			r.c.Store(string(buf), bench.MakeCachedValue(i))
+			r.c.Set(string(buf), bench.MakeCachedValue(i))
 			r.c.Delete(string(buf))
 
 			continue
 		}
 
-		v, found := r.c.Load(string(buf))
+		v, found := r.c.Get(string(buf))
 
-		if !found || v == nil || v.(bench.SmallCachedValue).I != i {
+		if !found || v.I != i {
 			b.Fatalf("found: %v, val: %v", found, v)
 		}
 	}
