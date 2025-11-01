@@ -5,19 +5,19 @@ import (
 	"testing"
 
 	"github.com/bool64/cache/bench"
-	"github.com/puzpuzpuz/xsync"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // XsyncBaseline is a benchmark runner.
 type XsyncBaseline struct {
-	c           *xsync.Map
+	c           *xsync.Map[string, bench.SmallCachedValue]
 	cardinality int
 }
 
 func (r XsyncBaseline) Make(b *testing.B, cardinality int) (bench.Runner, string) {
 	b.Helper()
 
-	c := xsync.NewMap()
+	c := xsync.NewMap[string, bench.SmallCachedValue]()
 
 	buf := make([]byte, 0)
 
@@ -62,7 +62,7 @@ func (r XsyncBaseline) Run(b *testing.B, cnt int, writeEvery int) {
 
 		v, found := r.c.Load(string(buf))
 
-		if !found || v == nil || v.(bench.SmallCachedValue).I != i {
+		if !found || v.I != i {
 			b.Fatalf("found: %v, val: %v", found, v)
 		}
 	}

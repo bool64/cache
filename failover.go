@@ -265,7 +265,11 @@ func (f *Failover) Get(
 }
 
 func (f *Failover) valueFromError(err error) (interface{}, bool, error) {
-	var errExpired ErrWithExpiredItem
+	if errors.Is(err, ErrNotFound) {
+		return nil, false, nil
+	}
+
+	var errExpired errExpired
 
 	if err == nil {
 		return nil, false, nil
@@ -276,10 +280,6 @@ func (f *Failover) valueFromError(err error) (interface{}, bool, error) {
 			return errExpired.Value(), true, nil
 		}
 
-		return nil, false, nil
-	}
-
-	if errors.Is(err, ErrNotFound) {
 		return nil, false, nil
 	}
 

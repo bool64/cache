@@ -53,7 +53,11 @@ func WithSkipRead(ctx context.Context) context.Context {
 
 // withoutSkipRead returns context with SkipRead flag disabled.
 func withoutSkipRead(ctx context.Context) context.Context {
-	return context.WithValue(ctx, skipReadCtxKey{}, false)
+	if SkipRead(ctx) {
+		return context.WithValue(ctx, skipReadCtxKey{}, false)
+	}
+
+	return ctx
 }
 
 // SkipRead returns true if cache read is ignored in context.
