@@ -674,6 +674,7 @@ func TestFailover_Get_staleBlock(t *testing.T) {
 					return
 				}
 			}
+
 			close(blockUpdate)
 
 			// Waiting for last goroutine.

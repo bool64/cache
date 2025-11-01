@@ -1,11 +1,10 @@
 package benchmark_test
 
 import (
+	"benchmark"
 	"encoding"
 	"runtime"
 	"testing"
-
-	"benchmark"
 
 	"github.com/bool64/cache"
 	"github.com/bool64/cache/bench"

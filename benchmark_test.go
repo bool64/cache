@@ -43,6 +43,7 @@ func Benchmark_ShardedByteMap_concurrent(b *testing.B) {
 					b.Fail()
 				}
 			}
+
 			wg.Done()
 		}()
 	}

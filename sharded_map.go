@@ -193,6 +193,7 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 		b.Lock()
 		for h := range c.hashedBuckets[i].data {
 			delete(b.data, h)
+
 			cnt++
 		}
 		b.Unlock()

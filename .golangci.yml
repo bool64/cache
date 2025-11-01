@@ -1,89 +1,104 @@
-# See https://github.com/golangci/golangci-lint/blob/master/.golangci.example.yml
+# See https://golangci-lint.run/docs/linters/configuration/
+version: "2"
 run:
   tests: true
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  gocyclo:
-    min-complexity: 25
-  dupl:
-    threshold: 100
-  misspell:
-    locale: US
-  unused:
-    check-exported: false
-  unparam:
-    check-exported: true
-  cyclop:
-    max-complexity: 25
-  funlen:
-    lines: 130
-    statements: 60
-  nestif:
-    min-complexity: 6
-  gocognit:
-    min-complexity: 40
-
 linters:
-  enable-all: true
+  default: all
   disable:
-    - noctx
-    - gochecknoinits
-    - scopelint
+    - fatcontext
     - exhaustive
-    - lll
-    - maligned
-    - gochecknoglobals
-    - gomnd
-    - wrapcheck
-    - paralleltest
-    - forbidigo
-    - exhaustivestruct
-    - interfacer # deprecated
-    - forcetypeassert
-    - scopelint # deprecated
-    - ifshort # too many false positives
-    - golint # deprecated
-    - varnamelen
-    - tagliatelle
-    - errname
-    - ireturn
-    - exhaustruct
-    - nonamedreturns
-    - nosnakecase
-    - structcheck
-    - varcheck
-    - deadcode
-    - testableexamples
-    - dupword
+    - errorlint
+    - errcheck
+    - err113
+    - embeddedstructfieldcheck
+    - noinlineerr
+    - wsl_v5
+    - funcorder
+    - copyloopvar
     - depguard
+    - dupword
+    - errname
+    - exhaustruct
+    - forbidigo
+    - forcetypeassert
+    - gochecknoglobals
+    - intrange
+    - ireturn
+    - lll
+    - mnd
+    - nonamedreturns
+    - paralleltest
+    - recvcheck
     - tagalign
-
-issues:
-  exclude-use-default: false
-  exclude-rules:
-    - linters:
-        - testifylint
-        - errcheck
-        - errorlint
-        - gomnd
-        - goconst
-        - goerr113
-        - noctx
-        - funlen
-        - dupl
-        - structcheck
-        - unused
-        - unparam
-        - nosnakecase
-      path: "_test.go"
-    - linters:
-        - errcheck # Error checking omitted for brevity.
-        - gosec
-      path: "example_"
-    - linters:
-        - dupl
-      path: "bench/"
-
+    - tagliatelle
+    - testableexamples
+    - testifylint
+    - varnamelen
+    - wrapcheck
+  settings:
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocyclo:
+      min-complexity: 25
+    misspell:
+      locale: US
+    unparam:
+      check-exported: true
+    cyclop:
+      max-complexity: 25
+    funlen:
+      lines: 130
+      statements: 60
+    nestif:
+      min-complexity: 6
+    gocognit:
+      min-complexity: 40
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - gosec
+          - dupl
+          - funlen
+          - goconst
+          - mnd
+          - noctx
+          - unparam
+          - unused
+          - errcheck
+        path: _test.go
+      - linters:
+          - errcheck
+        path: benchmark_
+      - linters:
+          - errcheck
+          - gosec
+        path: example_
+      - linters:
+          - revive
+        text: 'unused-parameter: parameter'
+      - linters:
+          - dupl
+          - errcheck
+          - gochecknoinits
+          - gosec
+        path: "bench/"
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
