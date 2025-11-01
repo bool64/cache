@@ -4,9 +4,9 @@ go 1.18
 
 require (
 	github.com/bool64/ctxd v1.2.1
-	github.com/bool64/dev v0.2.33
+	github.com/bool64/dev v0.2.43
 	github.com/bool64/stats v0.2.2
-	github.com/cespare/xxhash/v2 v2.2.0
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/stretchr/testify v1.8.4
 	github.com/swaggest/assertjson v1.9.0
 )

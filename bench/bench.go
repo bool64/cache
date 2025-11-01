@@ -102,7 +102,7 @@ func Concurrently(b *testing.B, scenarios []Scenario) {
 
 				b.ReportMetric(inUse, "MB/inuse")                    // Memory footprint of preloaded data.
 				b.ReportMetric(1000*preload.Seconds(), "ms/preload") // Time to populate initial data.
-				fmt.Sprintln(c)
+				fmt.Sprintln(c)                                      //nolint:govet // Escaping c.
 			})
 		}
 	}

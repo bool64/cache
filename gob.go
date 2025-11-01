@@ -48,11 +48,7 @@ func GobRegister(values ...interface{}) {
 
 // RecursiveTypeHash hashes type of value recursively to ensure structural match.
 func recursiveTypeHash(t reflect.Type, h hash.Hash64, met map[reflect.Type]bool) {
-	for {
-		if t.Kind() != reflect.Ptr {
-			break
-		}
-
+	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 

@@ -50,18 +50,19 @@ func (t *HTTPTransfer) ExportJSONL() http.Handler {
 				return
 			}
 		}
-		start := time.Now()
-		w := writerCnt{w: rw}
 
 		var (
-			n   int
-			err error
+			start = time.Now()
+			w     = writerCnt{w: rw}
+			n     int
+			err   error
 		)
 
 		enc := json.NewEncoder(&w)
 		enc.SetEscapeHTML(false)
 
 		line := make(map[string]interface{}, 4)
+
 		for cn, c := range t.caches {
 			if name != "" && cn != name {
 				continue
@@ -146,12 +147,14 @@ func (t *HTTPTransfer) Export() http.Handler {
 			if logger.logWarn != nil {
 				logger.logWarn(r.Context(), "cache dump failed: typesHash mismatch, incompatible cache")
 			}
+
 			http.Error(rw, "typesHash mismatch, incompatible cache", http.StatusBadRequest)
 
 			return
 		}
 
 		rw.Header().Set("Content-Type", "application/octet-stream")
+
 		n, err = c.Dump(&w)
 
 		ctx := r.Context()
@@ -201,7 +204,7 @@ func (t *HTTPTransfer) Import(ctx context.Context, exportURL string) error {
 		q.Set("typesHash", typesHash)
 		u.RawQuery = q.Encode()
 
-		req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
 			if logger.logWarn != nil {
 				logger.logWarn(ctx, "failed to build request",

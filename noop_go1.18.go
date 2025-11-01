@@ -23,6 +23,7 @@ func (NoOpOf[V]) Write(_ context.Context, _ []byte, _ V) error {
 // Read is always missing item.
 func (NoOpOf[V]) Read(_ context.Context, _ []byte) (V, error) {
 	var v V
+
 	return v, ErrNotFound
 }
 

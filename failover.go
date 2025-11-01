@@ -105,7 +105,7 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 	f := &Failover{}
 	f.config = cfg
 
-	f.logTrait.setup(cfg.Logger)
+	f.setup(cfg.Logger)
 	f.stat = cfg.Stats
 	f.backend = cfg.Backend
 

@@ -138,7 +138,7 @@ func (c *Trait) countOverflow() (int, bool) {
 
 	cnt := c.Len()
 
-	return cnt, cnt > int(c.Config.CountSoftLimit)
+	return cnt, cnt > int(c.Config.CountSoftLimit) //nolint:gosec
 }
 
 // Trait is a shared trait, useful to implement ReadWriter.

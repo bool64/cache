@@ -107,7 +107,7 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 	cnt := 0
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry)
 
 		cacheEntry.E = startTS
 		cnt++
@@ -125,6 +125,7 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 
 	c.data.Range(func(key, _ interface{}) bool {
 		c.data.Delete(key)
+
 		cnt++
 
 		return true
@@ -137,7 +138,7 @@ func (c *syncMap) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
 
 	c.data.Range(func(key, value interface{}) bool {
-		cacheEntry := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
+		cacheEntry := value.(*TraitEntry)
 		if cacheEntry.E < beforeTS {
 			c.data.Delete(key)
 		}
@@ -247,7 +248,7 @@ func (c *syncMap) evictLeast(evictFraction float64, val func(i *TraitEntry) int6
 
 	// Collect all keys and expirations.
 	c.data.Range(func(key, value interface{}) bool {
-		i := value.(*TraitEntry) //nolint // Panic on type assertion failure is fine here.
+		i := value.(*TraitEntry)
 		entries = append(entries, en{val: val(i), key: string(i.K)})
 
 		return true

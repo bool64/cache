@@ -55,7 +55,6 @@ func ExampleFailover_Get() {
 	// Get value from cache or the function.
 	v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (interface{}, error) {
 		// Build value or return error on failure.
-
 		return "<value>", nil
 	})
 	if err != nil {

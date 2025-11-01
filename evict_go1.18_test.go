@@ -216,9 +216,12 @@ func Test_generic_LFU_eviction(t *testing.T) {
 			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
 
 			i := 0
+
 			for {
 				i++
+
 				time.Sleep(10 * time.Millisecond)
+
 				if c.Len() <= 100 {
 					break
 				}
@@ -269,9 +272,12 @@ func Test_generic_LRU_eviction(t *testing.T) {
 			require.NoError(t, c.Write(ctx, []byte("100!"), 100))
 
 			i := 0
+
 			for {
 				i++
+
 				time.Sleep(10 * time.Millisecond)
+
 				if c.Len() <= 100 {
 					break
 				}
