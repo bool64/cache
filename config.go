@@ -60,6 +60,9 @@ type Config struct {
 
 	// EvictionStrategy is EvictMostExpired by default.
 	EvictionStrategy EvictionStrategy
+
+	// OnDelete is called when an entry is removed from cache by Delete, DeleteAll, expiration cleanup, or eviction.
+	OnDelete func(key []byte, value interface{})
 }
 
 // EvictionStrategy defines eviction behavior when soft limit is met during cleanup job.

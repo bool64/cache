@@ -155,15 +155,18 @@ func (c *shardedMapOf[V]) Delete(ctx context.Context, key []byte) error {
 	b := &c.hashedBuckets[h%shards]
 
 	b.Lock()
-	defer b.Unlock()
-
 	cachedEntry, found := b.data[h]
+
 	if !found || !bytes.Equal(cachedEntry.K, key) {
+		b.Unlock()
+
 		return ErrNotFound
 	}
 
 	delete(b.data, h)
+	b.Unlock()
 
+	c.notifyDeletedEntry(*cachedEntry)
 	c.t.NotifyDeleted(ctx, key)
 
 	return nil
@@ -193,12 +196,23 @@ func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
 func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
+	collectRemoved := c.t.Config.OnDelete != nil
+
+	var removed []TraitEntryOf[V]
+
+	if collectRemoved {
+		removed = make([]TraitEntryOf[V], 0)
+	}
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.Lock()
-		for h := range c.hashedBuckets[i].data {
+		for h, v := range c.hashedBuckets[i].data {
+			if collectRemoved {
+				removed = append(removed, *v)
+			}
+
 			delete(b.data, h)
 
 			cnt++
@@ -206,11 +220,19 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
+	c.notifyDeletedEntries(removed)
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
 func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
+	collectRemoved := c.t.Config.OnDelete != nil
+
+	var removed []TraitEntryOf[V]
+
+	if collectRemoved {
+		removed = make([]TraitEntryOf[V], 0)
+	}
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
@@ -218,11 +240,17 @@ func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
 		b.Lock()
 		for h, v := range b.data {
 			if v.E < beforeTS {
+				if collectRemoved {
+					removed = append(removed, *v)
+				}
+
 				delete(b.data, h)
 			}
 		}
 		b.Unlock()
 	}
+
+	c.notifyDeletedEntries(removed)
 }
 
 // Len returns number of elements in cache.
@@ -412,9 +440,29 @@ func (c *shardedMapOf[V]) evictLeast(evictFraction float64, val func(i *TraitEnt
 		b := &c.hashedBuckets[h%shards]
 
 		b.Lock()
+		if removed, found := b.data[h]; found {
+			c.notifyDeletedEntry(*removed)
+		}
+
 		delete(b.data, h)
 		b.Unlock()
 	}
 
 	return evictItems
+}
+
+func (c *shardedMapOf[V]) notifyDeletedEntries(entries []TraitEntryOf[V]) {
+	if c.t.Config.OnDelete == nil {
+		return
+	}
+
+	for _, entry := range entries {
+		c.t.Config.OnDelete(entry.K, entry.V)
+	}
+}
+
+func (c *shardedMapOf[V]) notifyDeletedEntry(entry TraitEntryOf[V]) {
+	if c.t.Config.OnDelete != nil {
+		c.t.Config.OnDelete(entry.K, entry.V)
+	}
 }

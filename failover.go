@@ -74,7 +74,9 @@ type Failover struct {
 	// Errors caches errors of failed updates.
 	Errors *ShardedMap
 
-	backend  ReadWriter
+	backend ReadWriter
+	wr      WriteAndReader
+
 	lock     sync.Mutex     // Securing keyLocks
 	keyLocks map[string]*kl // Preventing update concurrency per key
 	config   FailoverConfig
@@ -115,6 +117,8 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 		cfg.BackendConfig.Stats = cfg.Stats
 		f.backend = NewShardedMap(cfg.BackendConfig.Use)
 	}
+
+	f.wr, _ = f.backend.(WriteAndReader)
 
 	if cfg.FailedUpdateTTL > -1 {
 		f.Errors = NewShardedMap(Config{
@@ -353,9 +357,16 @@ func (f *Failover) doBuild(
 		return nil, err
 	}
 
-	writeErr := f.backend.Write(ctx, key, uVal)
-	if writeErr != nil {
-		return nil, writeErr
+	if f.wr != nil {
+		uVal, err = f.wr.WriteAndRead(ctx, key, uVal)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		writeErr := f.backend.Write(ctx, key, uVal)
+		if writeErr != nil {
+			return nil, writeErr
+		}
 	}
 
 	if f.config.ObserveMutability && value != nil {

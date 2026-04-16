@@ -26,6 +26,11 @@ type ReadWriterBy[K comparable, V any] interface {
 	WriterBy[K, V]
 }
 
+// WriteAndReaderBy allows a backend to store a value and return its stored representation.
+type WriteAndReaderBy[K comparable, V any] interface {
+	WriteAndRead(ctx context.Context, key K, value V) (V, error)
+}
+
 // WalkerBy calls function for every entry in cache and fails on first error returned by that function.
 //
 // Count of processed entries is returned.
