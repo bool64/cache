@@ -105,6 +105,67 @@ If `ObserveMutability` is enabled, `Failover` will also emit stats of how often 
 previous. This may help to understand data volatility and come up with a better TTL value. The check is done
 with [`reflect.DeepEqual`](https://pkg.go.dev/reflect#DeepEqual) and may affect performance.
 
+## Blob Cache
+
+For streamed file/blob workloads, the library also provides a blob-oriented abstraction and a local filesystem-backed
+storage implementation.
+
+[`blob.Entry`](https://pkg.go.dev/github.com/bool64/cache/blob#Entry) is a reopenable descriptor of content:
+
+```go
+type Entry interface {
+    Meta() Meta
+    Open() (io.ReadCloser, error)
+}
+```
+
+This keeps the cached value stable while letting callers open a fresh reader on demand.
+
+[`filecache.Storage`](https://pkg.go.dev/github.com/bool64/cache/filecache#Storage) implements
+[`cache.ReadWriterOf[blob.Entry]`](https://pkg.go.dev/github.com/bool64/cache#ReadWriterOf) and persists immutable blob
+files on local disk together with a compact in-memory index snapshot.
+
+Blob sources can be created with helpers from the [`blob`](https://pkg.go.dev/github.com/bool64/cache/blob) package,
+for example:
+
+* [`blob.FromReader`](https://pkg.go.dev/github.com/bool64/cache/blob#FromReader)
+* [`blob.FromReadCloser`](https://pkg.go.dev/github.com/bool64/cache/blob#FromReadCloser)
+* [`blob.FromHTTPResponse`](https://pkg.go.dev/github.com/bool64/cache/blob#FromHTTPResponse)
+
+Failover works with blob entries as well:
+
+```go
+storage, _ := filecache.NewStorage("/var/cache/photos")
+
+f := cache.NewFailoverOf[blob.Entry](func(cfg *cache.FailoverConfigOf[blob.Entry]) {
+    cfg.Backend = storage
+})
+
+entry, err := f.Get(ctx, []byte("photo:1"), func(ctx context.Context) (blob.Entry, error) {
+    resp, err := http.Get("https://example.com/photo.jpg")
+    if err != nil {
+        return nil, err
+    }
+
+    return blob.FromHTTPResponse(resp), nil
+})
+if err != nil {
+    return err
+}
+
+rc, err := entry.Open()
+if err != nil {
+    return err
+}
+defer rc.Close()
+
+// Use rc directly, or type assert to io.ReadSeeker if the backend provides it.
+```
+
+The local file-backed implementation currently requires explicit
+[`Storage.Close()`](https://pkg.go.dev/github.com/bool64/cache/filecache#Storage.Close) to flush the index snapshot on
+application shutdown.
+
 ## Sharded Map
 
 [`ShardedMap`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap)
