@@ -39,6 +39,11 @@ type ReadWriter interface {
 	Writer
 }
 
+// WriteAndReader allows a backend to store a value and return its stored representation.
+type WriteAndReader interface {
+	WriteAndRead(ctx context.Context, key []byte, value interface{}) (interface{}, error)
+}
+
 // Entry is cache entry with key and value.
 type Entry interface {
 	Key() []byte

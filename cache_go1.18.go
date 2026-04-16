@@ -26,6 +26,11 @@ type ReadWriterOf[V any] interface {
 	WriterOf[V]
 }
 
+// WriteAndReaderOf allows a backend to store a value and return its stored representation.
+type WriteAndReaderOf[V any] interface {
+	WriteAndRead(ctx context.Context, key []byte, value V) (V, error)
+}
+
 // WalkerOf calls function for every entry in cache and fails on first error returned by that function.
 //
 // Count of processed entries is returned.

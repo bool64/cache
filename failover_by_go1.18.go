@@ -62,7 +62,9 @@ type FailoverBy[K comparable, V any] struct {
 	// Errors caches errors of failed updates.
 	Errors *ShardedMapBy[K, error]
 
-	backend  ReadWriterBy[K, V]
+	backend ReadWriterBy[K, V]
+	wr      WriteAndReaderBy[K, V]
+
 	lock     sync.Mutex
 	keyLocks map[K]*klBy[V]
 	config   FailoverConfigBy[K, V]
@@ -97,6 +99,8 @@ func NewFailoverBy[K comparable, V any](options ...func(cfg *FailoverConfigBy[K,
 		cfg.BackendConfig.Stats = cfg.Stats
 		f.backend = NewShardedMapBy[K, V](cfg.BackendConfig.Use)
 	}
+
+	f.wr, _ = f.backend.(WriteAndReaderBy[K, V])
 
 	if cfg.FailedUpdateTTL > -1 {
 		f.Errors = NewShardedMapBy[K, error](ConfigBy[K]{
@@ -316,9 +320,16 @@ func (f *FailoverBy[K, V]) doBuild(
 		return v, err
 	}
 
-	writeErr := f.backend.Write(ctx, key, uVal)
-	if writeErr != nil {
-		return v, writeErr
+	if f.wr != nil {
+		uVal, err = f.wr.WriteAndRead(ctx, key, uVal)
+		if err != nil {
+			return v, err
+		}
+	} else {
+		writeErr := f.backend.Write(ctx, key, uVal)
+		if writeErr != nil {
+			return v, writeErr
+		}
 	}
 
 	if f.config.ObserveMutability && hasPreviousValue {

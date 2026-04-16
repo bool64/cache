@@ -93,7 +93,10 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 // Delete removes values by the key.
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
-	c.data.Delete(string(key))
+	if value, found := c.data.LoadAndDelete(string(key)); found && c.t.Config.OnDelete != nil {
+		entry := value.(*TraitEntry)
+		c.t.Config.OnDelete(entry.K, entry.V)
+	}
 
 	c.t.NotifyDeleted(ctx, key)
 
@@ -122,14 +125,31 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 func (c *syncMap) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
+	collectRemoved := c.t.Config.OnDelete != nil
 
-	c.data.Range(func(key, _ interface{}) bool {
+	var removed []TraitEntry
+
+	if collectRemoved {
+		removed = make([]TraitEntry, 0)
+	}
+
+	c.data.Range(func(key, value interface{}) bool {
+		if collectRemoved {
+			removed = append(removed, *value.(*TraitEntry))
+		}
+
 		c.data.Delete(key)
 
 		cnt++
 
 		return true
 	})
+
+	for _, entry := range removed {
+		if c.t.Config.OnDelete != nil {
+			c.t.Config.OnDelete(entry.K, entry.V)
+		}
+	}
 
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
@@ -141,6 +161,10 @@ func (c *syncMap) deleteExpired(before time.Time) {
 		cacheEntry := value.(*TraitEntry)
 		if cacheEntry.E < beforeTS {
 			c.data.Delete(key)
+
+			if c.t.Config.OnDelete != nil {
+				c.t.Config.OnDelete(cacheEntry.K, cacheEntry.V)
+			}
 		}
 
 		return true
