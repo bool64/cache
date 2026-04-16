@@ -566,9 +566,8 @@ func TestFailoverBy_Get_BackgroundUpdate(t *testing.T) {
 			time.Sleep(time.Millisecond)
 
 			val, err = c.Get(cache.WithTTL(ctx, time.Minute, false), "key", func(ctx context.Context) (string, error) {
-				atomic.AddInt64(&cnt, 1)
-
 				time.Sleep(time.Millisecond)
+				atomic.AddInt64(&cnt, 1)
 
 				return "second value", nil
 			})
@@ -617,9 +616,8 @@ func TestFailoverBy_Get_BackgroundUpdateMaxExpiration(t *testing.T) {
 			time.Sleep(time.Millisecond)
 
 			val, err = c.Get(cache.WithTTL(ctx, time.Minute, false), "key", func(ctx context.Context) (string, error) {
-				atomic.AddInt64(&cnt, 1)
-
 				time.Sleep(time.Millisecond)
+				atomic.AddInt64(&cnt, 1)
 
 				return "second value", nil
 			})
