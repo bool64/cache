@@ -28,6 +28,11 @@ type syncMapBy[K comparable, V any] struct {
 	t *TraitBy[K, V]
 }
 
+type syncMapEvictEntryBy[K comparable] struct {
+	key K
+	val int64
+}
+
 // NewSyncMapBy creates an instance of in-memory cache with typed keys and optional configuration.
 func NewSyncMapBy[K comparable, V any](options ...func(cfg *Config)) *SyncMapBy[K, V] {
 	c := &syncMapBy[K, V]{}
@@ -213,17 +218,12 @@ func (c *syncMapBy[K, V]) evictLeastCounter(evictFraction float64) int {
 }
 
 func (c *syncMapBy[K, V]) evictLeast(evictFraction float64, val func(i *TraitEntryBy[K, V]) int64) int {
-	type en struct {
-		key K
-		val int64
-	}
-
 	keysCnt := c.Len()
-	entries := make([]en, 0, keysCnt)
+	entries := make([]syncMapEvictEntryBy[K], 0, keysCnt)
 
 	c.data.Range(func(key, value interface{}) bool {
 		i := value.(*TraitEntryBy[K, V])
-		entries = append(entries, en{val: val(i), key: key.(K)})
+		entries = append(entries, syncMapEvictEntryBy[K]{val: val(i), key: key.(K)})
 
 		return true
 	})

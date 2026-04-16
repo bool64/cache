@@ -27,6 +27,12 @@ type keyedBucketBy[K comparable, V any] struct {
 	data map[K]*TraitEntryBy[K, V]
 }
 
+type evictLeastEntryBy[K comparable] struct {
+	key   K
+	shard int
+	val   int64
+}
+
 type shardedMapBy[K comparable, V any] struct {
 	shard func(K) uint64
 
@@ -258,12 +264,6 @@ func (c *shardedMapBy[K, V]) evictLeastCounter(evictFraction float64) int {
 }
 
 func (c *shardedMapBy[K, V]) evictLeast(evictFraction float64, val func(i *TraitEntryBy[K, V]) int64) int {
-	type evictLeastEntryBy struct {
-		key   K
-		shard int
-		val   int64
-	}
-
 	cnt := 0
 
 	for i := range c.hashedBuckets {
@@ -274,14 +274,14 @@ func (c *shardedMapBy[K, V]) evictLeast(evictFraction float64, val func(i *Trait
 		b.RUnlock()
 	}
 
-	entries := make([]evictLeastEntryBy, 0, cnt)
+	entries := make([]evictLeastEntryBy[K], 0, cnt)
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.RLock()
 		for k, entry := range b.data {
-			entries = append(entries, evictLeastEntryBy{key: k, shard: i, val: val(entry)})
+			entries = append(entries, evictLeastEntryBy[K]{key: k, shard: i, val: val(entry)})
 		}
 		b.RUnlock()
 	}
