@@ -22,7 +22,7 @@ func TestConcurrently(t *testing.T) {
 }
 
 func BenchmarkConcurrent(b *testing.B) {
-	var all []bench.Runner
+	all := make([]bench.Runner, 0, len(bench.ReadWriters)+len(bench.Failovers))
 
 	all = append(all, bench.ReadWriters...)
 	all = append(all, bench.Failovers...)

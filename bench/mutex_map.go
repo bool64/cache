@@ -1,7 +1,6 @@
 package bench
 
 import (
-	"strconv"
 	"sync"
 	"testing"
 )
@@ -11,6 +10,8 @@ type MutexMap struct {
 	mu          sync.Mutex
 	c           map[string]SmallCachedValue
 	cardinality int
+	keys        []string
+	writeKeys   []string
 }
 
 // Make initializes benchmark runner.
@@ -18,20 +19,17 @@ func (r *MutexMap) Make(b *testing.B, cardinality int) (Runner, string) {
 	b.Helper()
 
 	c := make(map[string]SmallCachedValue, cardinality)
-	buf := make([]byte, 0)
+	keys, writeKeys := makeStringKeys(cardinality)
 
 	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		c[string(buf)] = MakeCachedValue(i)
+		c[keys[i]] = MakeCachedValue(i)
 	}
 
 	return &MutexMap{
 		c:           c,
 		cardinality: cardinality,
+		keys:        keys,
+		writeKeys:   writeKeys,
 	}, "mutexMap-base"
 }
 
@@ -39,24 +37,17 @@ func (r *MutexMap) Make(b *testing.B, cardinality int) (Runner, string) {
 func (r *MutexMap) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
-	buf := make([]byte, 0, 10)
 	w := 0
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % r.cardinality
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		k := string(buf)
+		k := r.keys[i]
 
 		w++
 		if w == writeEvery {
 			w = 0
 
-			buf = append(buf, 'n') // Insert new key.
-
-			k := string(buf)
+			k = r.writeKeys[i]
 
 			r.mu.Lock()
 			r.c[k] = MakeCachedValue(i)
@@ -84,6 +75,8 @@ type RWMutexMap struct {
 	mu          sync.RWMutex
 	c           map[string]SmallCachedValue
 	cardinality int
+	keys        []string
+	writeKeys   []string
 }
 
 // Make initializes benchmark runner.
@@ -91,20 +84,17 @@ func (r *RWMutexMap) Make(b *testing.B, cardinality int) (Runner, string) {
 	b.Helper()
 
 	c := make(map[string]SmallCachedValue, cardinality)
-	buf := make([]byte, 0)
+	keys, writeKeys := makeStringKeys(cardinality)
 
 	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		c[string(buf)] = MakeCachedValue(i)
+		c[keys[i]] = MakeCachedValue(i)
 	}
 
 	return &RWMutexMap{
 		c:           c,
 		cardinality: cardinality,
+		keys:        keys,
+		writeKeys:   writeKeys,
 	}, "rwMutexMap-base"
 }
 
@@ -112,24 +102,17 @@ func (r *RWMutexMap) Make(b *testing.B, cardinality int) (Runner, string) {
 func (r *RWMutexMap) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
-	buf := make([]byte, 0, 10)
 	w := 0
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % r.cardinality
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		k := string(buf)
+		k := r.keys[i]
 
 		w++
 		if w == writeEvery {
 			w = 0
 
-			buf = append(buf, 'n') // Insert new key.
-
-			k := string(buf)
+			k = r.writeKeys[i]
 
 			r.mu.Lock()
 			r.c[k] = MakeCachedValue(i)

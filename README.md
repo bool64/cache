@@ -40,7 +40,7 @@ v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (interface{}, e
 })
 ```
 
-Or, starting with go1.18 you can use generic API.
+With go1.18+, you can use the generic API.
 
 ```go
 f := cache.NewFailoverOf[Dog](func(cfg *cache.FailoverConfigOf[Dog]) {
@@ -53,6 +53,20 @@ f := cache.NewFailoverOf[Dog](func(cfg *cache.FailoverConfigOf[Dog]) {
 v, err := f.Get(ctx, []byte("my-key"), func(ctx context.Context) (Dog, error) {
     // Build value or return error on failure.
 
+    return Dog{Name: "Snoopy"}, nil
+})
+```
+
+A typed-key API is available for `K comparable -> V`.
+
+```go
+f := cache.NewFailoverBy[string, Dog](func(cfg *cache.FailoverConfigBy[string, Dog]) {
+    // Using last 30 seconds of 5m TTL for background update.
+    cfg.MaxStaleness = 30 * time.Second
+    cfg.BackendConfig.TimeToLive = 5*time.Minute - cfg.MaxStaleness
+})
+
+v, err := f.Get(ctx, "my-key", func(ctx context.Context) (Dog, error) {
     return Dog{Name: "Snoopy"}, nil
 })
 ```
@@ -100,7 +114,10 @@ storage sharded by key. It offers good performance for concurrent usage. Values 
 An instance can be created with [`NewShardedMap`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMap) and
 functional options.
 
-Generic API is also available with [`NewShardedMapOf`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapOf).
+Generic APIs are also available with:
+
+* [`NewShardedMapOf`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapOf) for `[]byte -> V`.
+* [`NewShardedMapBy`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapBy) for `K comparable -> V`.
 
 It is recommended that separate caches are used for different entities, this helps observability on the sizes and
 activity for particular entities. Cache `Name` can be configured to reflect the purpose. Additionally, `Logger`
@@ -132,6 +149,40 @@ of minor performance impact (for updating counters on each cache serve).
 Keep in mind that eviction happens in response to soft limits that are checked periodically, so
 dataset may stay above eviction threshold, especially if `EvictFraction` combined with `DeleteExpiredJobInterval` 
 are lower than speed of growth.
+
+### Typed-Key Internals
+
+The legacy [`ShardedMap`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap) and generic
+[`ShardedMapOf`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapOf) use `[]byte` keys. They hash the key,
+select a shard, and keep entries behind the byte-key API.
+
+[`ShardedMapBy`](https://pkg.go.dev/github.com/bool64/cache#NewShardedMapBy) keeps the same sharded design, but uses
+typed keys internally:
+
+* bucket selection uses a configurable `ShardFunc[K]`
+* each bucket stores entries in a native `map[K]*entry`
+* lookup inside a shard is done by the Go runtime map for `K`, without an extra userland hash table and without a
+  separate collision check on the cache side
+
+The default shard count is `128`.
+
+For supported built-in key shapes, a sharder is provided automatically:
+
+* `string` uses `xxhash`
+* `bool` uses `0` or `1`
+* integer and `uintptr` keys use a cheap integer mixing function before `% shards`
+
+The integer mixer is used instead of raw `key % shards` because modulo only looks at the lowest bits. That can create
+very uneven shard distribution for structured numeric keys such as values spaced by powers of two or values whose low
+bits are not well distributed. Mixing folds higher bits into lower ones before shard selection, which improves lock
+distribution under concurrent access.
+
+For unsupported `K comparable` types, `NewShardedMapBy` panics at construction unless a custom sharder is configured in
+`ConfigBy[K]`. This keeps misconfiguration deterministic and avoids pushing sharder errors into hot-path APIs.
+
+`ShardFunc` is also the escape hatch for performance-sensitive workloads. The built-in sharders are intended to be
+good general-purpose defaults, while a custom typed sharder can be slightly faster for hot paths with well-understood
+key shapes such as integer identifiers.
 
 ### Batch Operations
 
@@ -188,6 +239,9 @@ storage backed by standard [`sync.Map`](https://pkg.go.dev/sync#Map). It impleme
 as [`ShardedMap`](#sharded-map) and can be a replacement. There is slight performance difference in latency and
 usually `ShardedMap` tends to consume less memory.
 
+Typed-key counterpart [`SyncMapBy`](https://pkg.go.dev/github.com/bool64/cache#NewSyncMapBy) is available for
+`K comparable -> V`.
+
 ## Context
 
 Context is propagated from parent goroutine to `Failover` and further to backend `ReadWriter` and builder function. In
@@ -221,5 +275,33 @@ Detached context makes background job continue even after the original context w
 ## Performance
 
 `Failover` cache adds some overhead, but overall performance is still good (especially for IO-bound applications).
+
+There are three API families:
+
+* `[]byte -> interface{}` via `ShardedMap`, `SyncMap`, `Failover`
+* `[]byte -> V` via `ShardedMapOf`, `FailoverOf`
+* `K comparable -> V` via `ShardedMapBy`, `SyncMapBy`, `FailoverBy`
+
+For the primary typed-key path (`string -> V`), the `By` family is in the same performance tier as the existing
+implementations.
+
+Representative in-repo benchmark results on Apple M3 Max were:
+
+* direct concurrent reads:
+  * `ShardedMap`: about `40 ns/op`
+  * `ShardedMapOf`: about `45 ns/op`
+  * `ShardedMapBy[string,...]`: about `50 ns/op`
+* direct failover reads without rebuilds:
+  * all three families: about `63 ns/op`
+* mixed benchmark scenario (`1e6` keys, `14` goroutines, `10%` writes):
+  * `ShardedMap`: about `44.8 ns/op`
+  * `ShardedMapOf`: about `43.6 ns/op`
+  * `ShardedMapBy[string,...]`: about `44.0 ns/op`
+  * `Failover(ShardedMap)`: about `139 ns/op`
+  * `FailoverOf(ShardedMapOf)`: about `151 ns/op`
+  * `FailoverBy(ShardedMapBy[string,...])`: about `145 ns/op`
+
+Those numbers are workload- and machine-dependent and are intended as a quick comparison of the available API
+approaches.
 
 Please check detailed [benchmarks](./_benchmark/README.md).

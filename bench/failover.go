@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/bool64/cache"
@@ -17,6 +16,8 @@ type FailoverRunner struct {
 	C           *cache.Failover
 	D           cache.Deleter
 	Cardinality int
+	Keys        [][]byte
+	WriteKeys   [][]byte
 }
 
 // Make initializes benchmark runner.
@@ -28,18 +29,14 @@ func (r FailoverRunner) Make(b *testing.B, cardinality int) (Runner, string) {
 	c := cache.NewFailover(cache.FailoverConfig{
 		Backend: be,
 	}.Use)
-	buf := make([]byte, 0)
+	keys, writeKeys := makeByteKeys(cardinality)
 
 	for i := 0; i < cardinality; i++ {
 		i := i
 
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		_, err := c.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+		if _, err := c.Get(ctx, keys[i], func(ctx context.Context) (any, error) {
 			return MakeCachedValue(i), nil
-		})
-		if err != nil {
+		}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -48,6 +45,8 @@ func (r FailoverRunner) Make(b *testing.B, cardinality int) (Runner, string) {
 		C:           c,
 		D:           be.(cache.Deleter),
 		Cardinality: cardinality,
+		Keys:        keys,
+		WriteKeys:   writeKeys,
 	}, fmt.Sprintf("FailoverRunner(%T)", be)
 }
 
@@ -56,22 +55,18 @@ func (r FailoverRunner) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
 	ctx := context.Background()
-	buf := make([]byte, 0, 10)
 	w := 0
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % r.Cardinality
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
+		key := r.Keys[i]
 
 		w++
 		if w == writeEvery {
 			w = 0
+			key = r.WriteKeys[i]
 
-			buf = append(buf, 'n') // Insert new key.
-
-			v, err := r.C.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+			v, err := r.C.Get(ctx, key, func(ctx context.Context) (any, error) {
 				return MakeCachedValue(i), nil
 			})
 
@@ -79,14 +74,14 @@ func (r FailoverRunner) Run(b *testing.B, cnt int, writeEvery int) {
 				b.Fatalf("err: %v, val: %v", err, v)
 			}
 
-			if err = r.D.Delete(ctx, buf); err != nil && !errors.Is(err, cache.ErrNotFound) {
-				b.Fatalf("err: %v, key: %s", err, string(buf))
+			if err = r.D.Delete(ctx, key); err != nil && !errors.Is(err, cache.ErrNotFound) {
+				b.Fatalf("err: %v, key: %s", err, string(key))
 			}
 
 			continue
 		}
 
-		v, err := r.C.Get(ctx, buf, func(ctx context.Context) (interface{}, error) {
+		v, err := r.C.Get(ctx, key, func(ctx context.Context) (any, error) {
 			panic("builder function should not be invoked while reading")
 		})
 

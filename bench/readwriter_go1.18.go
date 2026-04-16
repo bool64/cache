@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/bool64/cache"
@@ -21,6 +20,8 @@ type ReadWriterOfRunner struct {
 	D           cache.Deleter
 	Cardinality int
 	Name        string
+	Keys        [][]byte
+	WriteKeys   [][]byte
 }
 
 // Make initializes benchmark runner.
@@ -29,15 +30,10 @@ func (cl ReadWriterOfRunner) Make(b *testing.B, cardinality int) (Runner, string
 
 	be := cl.F()
 	ctx := context.Background()
-	buf := make([]byte, 0)
+	keys, writeKeys := makeByteKeys(cardinality)
 
 	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		err := be.Write(ctx, buf, MakeCachedValue(i))
+		err := be.Write(ctx, keys[i], MakeCachedValue(i))
 		if err != nil {
 			b.Fail()
 		}
@@ -53,6 +49,8 @@ func (cl ReadWriterOfRunner) Make(b *testing.B, cardinality int) (Runner, string
 		RW:          be,
 		D:           be.(cache.Deleter),
 		Cardinality: cardinality,
+		Keys:        keys,
+		WriteKeys:   writeKeys,
 	}, name
 }
 
@@ -61,34 +59,30 @@ func (cl ReadWriterOfRunner) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
 	ctx := context.Background()
-	buf := make([]byte, 0, 10)
 	w := 0
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % cl.Cardinality
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
+		key := cl.Keys[i]
 
 		w++
 		if w == writeEvery {
 			w = 0
+			key = cl.WriteKeys[i]
 
-			buf = append(buf, 'n') // Insert new key.
-
-			err := cl.RW.Write(ctx, buf, MakeCachedValue(i))
+			err := cl.RW.Write(ctx, key, MakeCachedValue(i))
 			if err != nil {
 				b.Fatalf("err: %v", err)
 			}
 
-			if err = cl.D.Delete(ctx, buf); err != nil && !errors.Is(err, cache.ErrNotFound) {
+			if err = cl.D.Delete(ctx, key); err != nil && !errors.Is(err, cache.ErrNotFound) {
 				b.Fatalf("err: %v", err)
 			}
 
 			continue
 		}
 
-		v, err := cl.RW.Read(ctx, buf)
+		v, err := cl.RW.Read(ctx, key)
 
 		if err != nil || v.I != i {
 			b.Fatalf("err: %v, val: %v", err, v)
