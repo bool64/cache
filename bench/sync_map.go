@@ -1,7 +1,6 @@
 package bench
 
 import (
-	"strconv"
 	"sync"
 	"testing"
 )
@@ -10,6 +9,8 @@ import (
 type SyncMapBaseline struct {
 	c           *sync.Map
 	cardinality int
+	keys        []string
+	writeKeys   []string
 }
 
 // Make initializes benchmark runner.
@@ -17,20 +18,17 @@ func (r SyncMapBaseline) Make(b *testing.B, cardinality int) (Runner, string) {
 	b.Helper()
 
 	c := &sync.Map{}
-	buf := make([]byte, 0)
+	keys, writeKeys := makeStringKeys(cardinality)
 
 	for i := 0; i < cardinality; i++ {
-		i := i
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
-
-		c.Store(string(buf), MakeCachedValue(i))
+		c.Store(keys[i], MakeCachedValue(i))
 	}
 
 	return SyncMapBaseline{
 		c:           c,
 		cardinality: cardinality,
+		keys:        keys,
+		writeKeys:   writeKeys,
 	}, "sync.Map-base"
 }
 
@@ -38,28 +36,25 @@ func (r SyncMapBaseline) Make(b *testing.B, cardinality int) (Runner, string) {
 func (r SyncMapBaseline) Run(b *testing.B, cnt int, writeEvery int) {
 	b.Helper()
 
-	buf := make([]byte, 0, 10)
 	w := 0
 
 	for i := 0; i < cnt; i++ {
 		i := (i ^ 12345) % r.cardinality
-
-		buf = append(buf[:0], []byte(KeyPrefix)...)
-		buf = append(buf, []byte(strconv.Itoa(i))...)
+		key := r.keys[i]
 
 		w++
 		if w == writeEvery {
 			w = 0
 
-			buf = append(buf, 'n') // Insert new key.
+			key = r.writeKeys[i]
 
-			r.c.Store(string(buf), MakeCachedValue(i))
-			r.c.Delete(string(buf))
+			r.c.Store(key, MakeCachedValue(i))
+			r.c.Delete(key)
 
 			continue
 		}
 
-		v, found := r.c.Load(string(buf))
+		v, found := r.c.Load(key)
 
 		if !found || v == nil || v.(SmallCachedValue).I != i {
 			b.Fatalf("found: %v, val: %v", found, v)

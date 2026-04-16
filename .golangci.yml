@@ -60,12 +60,21 @@ linters:
     generated: lax
     rules:
       - linters:
+          - modernize
+        path: "_go1\\.18(_test)?\\.go$"
+        text: 'plusbuild: \+build line is no longer needed'
+      - linters:
+          - modernize
+        text: 'any: interface\{\} can be replaced by any'
+      - linters:
           - gosec
           - dupl
           - funlen
           - goconst
           - mnd
           - noctx
+          - testpackage
+          - thelper
           - unparam
           - unused
           - errcheck

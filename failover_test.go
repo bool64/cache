@@ -203,7 +203,8 @@ func TestFailover_Get_BackgroundUpdate(t *testing.T) {
 				cache.FailoverConfig{
 					Logger: logger,
 					BackendConfig: cache.Config{
-						TimeToLive: time.Millisecond,
+						TimeToLive:       time.Millisecond,
+						ExpirationJitter: -1,
 					},
 					SyncRead: true,
 				}.Use,
@@ -248,6 +249,7 @@ func TestFailover_Get_BackgroundUpdate(t *testing.T) {
 func TestFailover_Get_BackgroundUpdateMaxExpiration(t *testing.T) {
 	for _, be := range backends(func(config *cache.Config) {
 		config.TimeToLive = time.Millisecond
+		config.ExpirationJitter = -1
 	}) {
 		be := be
 
@@ -302,6 +304,7 @@ func TestFailover_Get_BackgroundUpdateMaxExpiration(t *testing.T) {
 func TestFailover_Get_SyncUpdate(t *testing.T) {
 	for _, be := range backends(func(config *cache.Config) {
 		config.TimeToLive = time.Millisecond
+		config.ExpirationJitter = -1
 	}) {
 		be := be
 
