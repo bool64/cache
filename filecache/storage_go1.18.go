@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -509,7 +510,7 @@ func newVersion() (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf("%d%s", time.Now().UTC().UnixNano(), hex.EncodeToString(buf[:])), nil
+	return fmt.Sprintf("%s%s", hex.EncodeToString(buf[:]), strconv.FormatInt(time.Now().UnixNano(), 36)), nil
 }
 
 type trackedFile struct {
