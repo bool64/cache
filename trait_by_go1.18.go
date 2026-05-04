@@ -15,7 +15,7 @@ type TraitBy[K comparable, V any] struct {
 }
 
 // NewTraitBy instantiates new TraitBy.
-func NewTraitBy[K comparable, V any](config Config, options ...func(t *Trait)) *TraitBy[K, V] {
+func NewTraitBy[K comparable, V any](config Policy, options ...func(t *Trait)) *TraitBy[K, V] {
 	t := &TraitBy[K, V]{}
 
 	t.Trait = *NewTrait(config, options...)

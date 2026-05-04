@@ -21,7 +21,7 @@ type FailoverConfigBy[K comparable, V any] struct {
 	Backend ReadWriterBy[K, V]
 
 	// BackendConfig is a configuration for ShardedMapBy cache instance if Backend is not provided.
-	BackendConfig ConfigBy[K]
+	BackendConfig ConfigBy[K, V]
 
 	// FailedUpdateTTL is ttl of failed build cache, default 20s, -1 disables errors cache.
 	FailedUpdateTTL time.Duration
@@ -103,8 +103,8 @@ func NewFailoverBy[K comparable, V any](options ...func(cfg *FailoverConfigBy[K,
 	f.wr, _ = f.backend.(WriteAndReaderBy[K, V])
 
 	if cfg.FailedUpdateTTL > -1 {
-		f.Errors = NewShardedMapBy[K, error](ConfigBy[K]{
-			Config: Config{
+		f.Errors = NewShardedMapBy[K, error](ConfigBy[K, error]{
+			Policy: Policy{
 				Name:       "err_" + cfg.Name,
 				Logger:     cfg.Logger,
 				Stats:      cfg.Stats,

@@ -10,7 +10,7 @@ import (
 )
 
 func Benchmark_ShardFunc_int_default(b *testing.B) {
-	benchShardFuncInt(b, resolveShardFunc(ConfigBy[int]{}))
+	benchShardFuncInt(b, resolveShardFunc(ConfigBy[int, int]{}))
 }
 
 func Benchmark_ShardFunc_int_specialized(b *testing.B) {
@@ -20,7 +20,7 @@ func Benchmark_ShardFunc_int_specialized(b *testing.B) {
 }
 
 func Benchmark_ShardFunc_int_customConfig(b *testing.B) {
-	benchShardFuncInt(b, resolveShardFunc(ConfigBy[int]{
+	benchShardFuncInt(b, resolveShardFunc(ConfigBy[int, int]{
 		ShardFunc: func(key int) uint64 {
 			return mixInt64(int64(key))
 		},
@@ -61,7 +61,7 @@ func benchShardFuncInt(b *testing.B, shard func(int) uint64) {
 func benchShardedMapByIntConcurrent(b *testing.B, shard func(int) uint64) {
 	b.Helper()
 
-	c := NewShardedMapBy[int, int](func(cfg *ConfigBy[int]) {
+	c := NewShardedMapBy[int, int](func(cfg *ConfigBy[int, int]) {
 		cfg.ShardFunc = shard
 	})
 	ctx := context.Background()

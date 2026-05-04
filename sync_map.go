@@ -28,7 +28,8 @@ type syncMap struct {
 
 	data sync.Map
 
-	t *Trait
+	onDelete func([]byte, interface{})
+	t        *Trait
 }
 
 // NewSyncMap creates an instance of in-memory cache with optional configuration.
@@ -43,13 +44,15 @@ func NewSyncMap(options ...func(cfg *Config)) *SyncMap {
 		option(&cfg)
 	}
 
+	c.onDelete = cfg.OnDelete
+
 	evict := c.evictMostExpired
 
 	if cfg.EvictionStrategy != EvictMostExpired {
 		evict = c.evictLeastCounter
 	}
 
-	c.t = NewTrait(cfg, func(t *Trait) {
+	c.t = NewTrait(cfg.Policy, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.Evict = evict
@@ -93,9 +96,9 @@ func (c *syncMap) Write(ctx context.Context, k []byte, v interface{}) error {
 
 // Delete removes values by the key.
 func (c *syncMap) Delete(ctx context.Context, key []byte) error {
-	if value, found := c.data.LoadAndDelete(string(key)); found && c.t.Config.OnDelete != nil {
+	if value, found := c.data.LoadAndDelete(string(key)); found && c.onDelete != nil {
 		entry := value.(*TraitEntry)
-		c.t.Config.OnDelete(entry.K, entry.V)
+		c.onDelete(entry.K, entry.V)
 	}
 
 	c.t.NotifyDeleted(ctx, key)
@@ -125,7 +128,7 @@ func (c *syncMap) ExpireAll(ctx context.Context) {
 func (c *syncMap) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
-	collectRemoved := c.t.Config.OnDelete != nil
+	collectRemoved := c.onDelete != nil
 
 	var removed []TraitEntry
 
@@ -146,8 +149,8 @@ func (c *syncMap) DeleteAll(ctx context.Context) {
 	})
 
 	for _, entry := range removed {
-		if c.t.Config.OnDelete != nil {
-			c.t.Config.OnDelete(entry.K, entry.V)
+		if c.onDelete != nil {
+			c.onDelete(entry.K, entry.V)
 		}
 	}
 
@@ -162,8 +165,8 @@ func (c *syncMap) deleteExpired(before time.Time) {
 		if cacheEntry.E < beforeTS {
 			c.data.Delete(key)
 
-			if c.t.Config.OnDelete != nil {
-				c.t.Config.OnDelete(cacheEntry.K, cacheEntry.V)
+			if c.onDelete != nil {
+				c.onDelete(cacheEntry.K, cacheEntry.V)
 			}
 		}
 

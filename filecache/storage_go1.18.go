@@ -8,11 +8,11 @@ package filecache
 import (
 	"context"
 	"crypto/rand"
-	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,70 +30,114 @@ const (
 	fileExt       = ".blob"
 )
 
+var (
+	_     cache.ReadWriterBy[string, blob.Entry]     = (*Storage[string])(nil)
+	_     cache.WriteAndReaderBy[string, blob.Entry] = (*Storage[string])(nil)
+	bgCtx                                            = context.Background()
+)
+
 // Storage is a local filesystem-backed blob storage.
-type Storage struct {
+type Storage[K comparable] struct {
 	dir     string
 	dataDir string
 
-	index *cache.ShardedMapOf[blob.Entry]
+	index *cache.ShardedMapBy[K, storedEntry]
+	log   cache.Logger
+	split func(version string) []string
+	limit uint64
+	bytes int64
 
-	mu      sync.Mutex
-	runtime map[string]*runtimeFile
+	mu          sync.Mutex
+	openedFiles map[string]*openedFile
 
-	closeOnce sync.Once
+	openedWait sync.WaitGroup
+	closeOnce  sync.Once
 }
 
 type storedEntry struct {
-	storage *Storage
-	meta    blob.Meta
-	version string
+	Meta    blob.Meta
+	Version string
 }
 
-type persistedEntry struct {
-	Key      []byte
-	Meta     blob.Meta
-	Version  string
-	ExpireAt time.Time
-}
-
-type runtimeFile struct {
-	path string
+type openedFile struct {
 	refs int64
 	dead bool
 }
 
+type blobInstance struct {
+	open func() (io.ReadCloser, error)
+	meta blob.Meta
+}
+
+func (b *blobInstance) Meta() blob.Meta {
+	return b.meta
+}
+
+func (b *blobInstance) Open() (io.ReadCloser, error) {
+	return b.open()
+}
+
 // NewStorage creates a local filesystem-backed blob storage.
-func NewStorage(path string) (*Storage, error) {
-	s := &Storage{
-		dir:     path,
-		dataDir: filepath.Join(path, dataDirName),
-		runtime: make(map[string]*runtimeFile),
+func NewStorage[K comparable](path string, options ...func(cfg *Config[K])) (*Storage[K], error) {
+	cfg := Config[K]{}
+
+	for _, option := range options {
+		option(&cfg)
+	}
+
+	if cfg.IndexPolicy.Name == "" {
+		cfg.IndexPolicy.Name = "filecache:" + filepath.Base(path)
+	}
+
+	if cfg.IndexPolicy.TimeToLive == 0 {
+		cfg.IndexPolicy.TimeToLive = cache.UnlimitedTTL
+	}
+
+	if cfg.SplitPath == nil {
+		cfg.SplitPath = PrefixSplit(2, 2)
+	}
+
+	s := &Storage[K]{
+		dir:         path,
+		dataDir:     filepath.Join(path, dataDirName),
+		log:         cfg.IndexPolicy.Logger,
+		split:       cfg.SplitPath,
+		limit:       cfg.StoredBytesSoftLimit,
+		openedFiles: make(map[string]*openedFile),
 	}
 
 	if err := os.MkdirAll(s.dataDir, 0o750); err != nil {
 		return nil, err
 	}
 
-	s.index = cache.NewShardedMapOf[blob.Entry](cache.Config{
-		Name:               "filecache:" + filepath.Base(path),
-		ExpirationJitter:   -1,
-		EvictionStrategy:   cache.EvictMostExpired,
-		TimeToLive:         cache.UnlimitedTTL,
-		DeleteExpiredAfter: 24 * time.Hour,
-		OnDelete: func(_ []byte, value interface{}) {
-			if entry, ok := value.(blob.Entry); ok {
-				s.markDead(entry)
+	s.index = cache.NewShardedMapBy[K, storedEntry](
+		cache.WithPolicyBy[K, storedEntry](cfg.IndexPolicy),
+		func(indexCfg *cache.ConfigBy[K, storedEntry]) {
+			origEvictionNeeded := indexCfg.EvictionNeeded
+
+			if s.limit > 0 {
+				indexCfg.EvictionNeeded = func() bool {
+					return s.storedBytesOverflow() || (origEvictionNeeded != nil && origEvictionNeeded())
+				}
+			}
+
+			indexCfg.ShardFunc = cfg.IndexShardFunc
+			indexCfg.OnDeleteBy = func(_ K, entry storedEntry) {
+				s.addStoredBytes(-entry.Meta.Size)
+
+				if rmErr := s.removeVersion(entry.Version); rmErr != nil && s.log != nil {
+					s.log.Error(bgCtx, "failed to delete blob file after index removal",
+						"error", rmErr,
+						"version", entry.Version,
+						"path", s.pathForVersion(entry.Version),
+						"name", cfg.IndexPolicy.Name,
+					)
+				}
 			}
 		},
-	}.Use)
+	)
 
 	if err := s.restoreIndex(); err != nil {
-		s.index = nil
-
-		return nil, err
-	}
-
-	if err := s.reconcileFiles(); err != nil {
 		s.index = nil
 
 		return nil, err
@@ -103,244 +147,284 @@ func NewStorage(path string) (*Storage, error) {
 }
 
 // Read reads a blob entry by key.
-func (s *Storage) Read(ctx context.Context, key []byte) (blob.Entry, error) {
-	return s.index.Read(ctx, key)
+func (s *Storage[K]) Read(ctx context.Context, key K) (blob.Entry, error) {
+	v, err := s.index.Read(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	b := blobInstance{
+		meta: v.Meta,
+		open: func() (io.ReadCloser, error) {
+			return s.openVersion(v.Version)
+		},
+	}
+
+	return &b, err
 }
 
 // Write materializes a blob entry into local storage and updates the index.
-func (s *Storage) Write(ctx context.Context, key []byte, entry blob.Entry) error {
+func (s *Storage[K]) Write(ctx context.Context, key K, entry blob.Entry) error {
 	_, err := s.WriteAndRead(ctx, key, entry)
 
 	return err
 }
 
 // WriteAndRead materializes a blob entry into local storage, updates the index, and returns the stored entry.
-func (s *Storage) WriteAndRead(ctx context.Context, key []byte, entry blob.Entry) (blob.Entry, error) {
+func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) (_ blob.Entry, err error) {
 	rc, err := entry.Open()
 	if err != nil {
 		return nil, err
 	}
 
+	defer func() {
+		if clErr := rc.Close(); clErr != nil && err == nil {
+			err = clErr
+		}
+	}()
+
 	version, err := newVersion()
 	if err != nil {
-		_ = rc.Close()
-
 		return nil, err
 	}
 
 	finalPath := s.pathForVersion(version)
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o750); err != nil {
-		_ = rc.Close()
-
 		return nil, err
 	}
 
 	tmp, err := os.CreateTemp(filepath.Dir(finalPath), version+".tmp-*")
 	if err != nil {
-		_ = rc.Close()
-
 		return nil, err
 	}
 
 	tmpName := tmp.Name()
-	cleanupTemp := func() {
-		_ = os.Remove(tmpName)
-	}
 
-	if _, err := io.Copy(tmp, rc); err != nil {
-		_ = tmp.Close()
-		_ = rc.Close()
+	defer func() {
+		if tmp != nil {
+			if clErr := tmp.Close(); clErr != nil && err == nil {
+				err = clErr
+			}
+		}
 
-		cleanupTemp()
+		if rmErr := os.Remove(tmpName); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			err = joinErr(err, rmErr)
+		}
+	}()
 
+	size, err := io.Copy(tmp, rc)
+	if err != nil {
 		return nil, err
 	}
 
 	if err := tmp.Close(); err != nil {
-		_ = rc.Close()
-
-		cleanupTemp()
-
 		return nil, err
 	}
 
-	if err := rc.Close(); err != nil {
-		cleanupTemp()
-
-		return nil, err
-	}
+	tmp = nil
 
 	if err := os.Rename(tmpName, finalPath); err != nil {
-		cleanupTemp()
-
 		return nil, err
 	}
 
-	newEntry := &storedEntry{
-		storage: s,
-		meta:    entry.Meta(),
-		version: version,
+	newEntry := storedEntry{
+		Meta:    entry.Meta(),
+		Version: version,
 	}
+	newEntry.Meta.Size = size
 
-	s.ensureRuntime(version, finalPath)
-
-	oldEntry, _ := s.currentEntry(ctx, key)
+	oldEntry, oldEntryExists := s.currentEntry(ctx, key)
 
 	if err := s.index.Write(ctx, key, newEntry); err != nil {
-		s.markDead(newEntry)
+		_ = s.removeVersion(version)
 
 		return nil, err
 	}
 
-	if oldEntry != nil {
-		s.markDead(oldEntry)
+	s.addStoredBytes(newEntry.Meta.Size)
+
+	if oldEntryExists {
+		s.addStoredBytes(-oldEntry.Meta.Size)
+
+		if rmErr := s.removeVersion(oldEntry.Version); rmErr != nil && s.log != nil {
+			s.log.Error(ctx, "failed to delete superseded blob file",
+				"error", rmErr,
+				"version", oldEntry.Version,
+				"path", s.pathForVersion(oldEntry.Version),
+			)
+		}
 	}
 
-	return newEntry, nil
+	b := blobInstance{
+		meta: newEntry.Meta,
+		open: func() (io.ReadCloser, error) {
+			return s.openVersion(newEntry.Version)
+		},
+	}
+
+	return &b, nil
 }
 
 // Delete deletes a blob entry by key.
-func (s *Storage) Delete(ctx context.Context, key []byte) error {
+func (s *Storage[K]) Delete(ctx context.Context, key K) error {
 	return s.index.Delete(ctx, key)
 }
 
 // Close dumps the in-memory index and stops background jobs.
-func (s *Storage) Close() error {
+func (s *Storage[K]) Close() error {
 	var err error
 
 	s.closeOnce.Do(func() {
 		err = s.dumpIndex()
-		if reconcileErr := s.reconcileFiles(); err == nil {
-			err = reconcileErr
-		}
-
 		s.index = nil
+		s.openedWait.Wait()
 	})
 
 	return err
 }
 
-func (e *storedEntry) Meta() blob.Meta {
-	return e.meta
-}
-
-func (e *storedEntry) Open() (io.ReadCloser, error) {
-	return e.storage.openVersion(e.version)
-}
-
-func (s *Storage) currentEntry(ctx context.Context, key []byte) (blob.Entry, bool) {
+func (s *Storage[K]) currentEntry(ctx context.Context, key K) (storedEntry, bool) {
 	entry, err := s.index.Read(ctx, key)
 	if err == nil {
 		return entry, true
 	}
 
-	var errExpired cache.ErrWithExpiredItemOf[blob.Entry]
+	var errExpired cache.ErrWithExpiredItemOf[storedEntry]
 	if errors.As(err, &errExpired) {
 		return errExpired.Value(), true
 	}
 
-	return nil, false
+	return storedEntry{}, false
 }
 
-func (s *Storage) openVersion(version string) (io.ReadCloser, error) {
-	path := s.pathForVersion(version)
-	rt := s.ensureRuntime(version, path)
-	atomic.AddInt64(&rt.refs, 1)
+func (s *Storage[K]) openVersion(version string) (io.ReadCloser, error) {
+	s.acquireVersion(version)
 
-	//nolint:gosec // Path is derived from internal versioned storage layout, not external input.
-	f, err := os.Open(path)
+	f, err := os.Open(s.pathForVersion(version))
 	if err != nil {
-		atomic.AddInt64(&rt.refs, -1)
+		_ = s.releaseVersion(version)
 
 		return nil, err
 	}
 
 	return &trackedFile{
 		File: f,
-		release: func() {
-			s.releaseVersion(version)
+		release: func() error {
+			return s.releaseVersion(version)
 		},
 	}, nil
 }
 
-func (s *Storage) releaseVersion(version string) {
+func (s *Storage[K]) releaseVersion(version string) error {
+	defer s.openedWait.Done()
+
 	s.mu.Lock()
-	rt := s.runtime[version]
+	rt := s.openedFiles[version]
+
+	if rt != nil {
+		rt.refs--
+	}
+
 	s.mu.Unlock()
 
 	if rt == nil {
-		return
+		return nil
 	}
 
-	if atomic.AddInt64(&rt.refs, -1) == 0 {
+	if rt.refs == 0 && rt.dead {
+		err := os.Remove(s.pathForVersion(version))
+
 		s.mu.Lock()
-		defer s.mu.Unlock()
+		delete(s.openedFiles, version)
+		s.mu.Unlock()
 
-		rt = s.runtime[version]
-		if rt == nil || atomic.LoadInt64(&rt.refs) != 0 || !rt.dead {
-			return
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
-
-		_ = os.Remove(rt.path)
-
-		delete(s.runtime, version)
 	}
+
+	return nil
 }
 
-func (s *Storage) ensureRuntime(version, path string) *runtimeFile {
+func (s *Storage[K]) acquireVersion(version string) *openedFile {
+	s.openedWait.Add(1)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if rt, ok := s.runtime[version]; ok {
-		if rt.path == "" {
-			rt.path = path
-		}
+	rt := s.openedFiles[version]
+	if rt != nil {
+		rt.refs++
 
 		return rt
 	}
 
-	rt := &runtimeFile{path: path}
-	s.runtime[version] = rt
+	rt = &openedFile{
+		refs: 1,
+	}
+	s.openedFiles[version] = rt
 
 	return rt
 }
 
-func (s *Storage) markDead(entry blob.Entry) {
-	se, ok := entry.(*storedEntry)
-	if !ok || se == nil {
-		return
-	}
-
-	path := s.pathForVersion(se.version)
-
+func (s *Storage[K]) markDead(version string) bool {
 	s.mu.Lock()
-	rt := s.runtime[se.version]
+	defer s.mu.Unlock()
+
+	rt := s.openedFiles[version]
 
 	if rt == nil {
-		rt = &runtimeFile{path: path}
-		s.runtime[se.version] = rt
+		return false
 	}
 
 	rt.dead = true
-	refs := atomic.LoadInt64(&rt.refs)
-	s.mu.Unlock()
 
-	if refs == 0 {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		rt = s.runtime[se.version]
-		if rt == nil || atomic.LoadInt64(&rt.refs) != 0 || !rt.dead {
-			return
-		}
-
-		_ = os.Remove(rt.path)
-
-		delete(s.runtime, se.version)
-	}
+	return true
 }
 
-func (s *Storage) restoreIndex() error {
+func (s *Storage[K]) removeVersion(version string) error {
+	if s.markDead(version) {
+		return nil
+	}
+
+	if err := os.Remove(s.pathForVersion(version)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Storage[K]) storedBytesOverflow() bool {
+	if s.limit == 0 {
+		return false
+	}
+
+	total := atomic.LoadInt64(&s.bytes)
+	if total < 0 {
+		total = 0
+	}
+
+	if s.limit > math.MaxInt64 {
+		return false
+	}
+
+	return total > int64(s.limit)
+}
+
+func (s *Storage[K]) addStoredBytes(delta int64) {
+	if delta == 0 {
+		return
+	}
+
+	total := atomic.AddInt64(&s.bytes, delta)
+	if total >= 0 {
+		return
+	}
+
+	atomic.StoreInt64(&s.bytes, 0)
+}
+
+func (s *Storage[K]) restoreIndex() (err error) {
 	f, err := os.Open(filepath.Join(s.dir, indexFileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -349,81 +433,57 @@ func (s *Storage) restoreIndex() error {
 
 		return err
 	}
-	defer f.Close()
 
-	var entries []persistedEntry
-	if err := gob.NewDecoder(f).Decode(&entries); err != nil {
-		return err
+	defer func() {
+		if clErr := f.Close(); clErr != nil && err == nil {
+			err = clErr
+		}
+	}()
+
+	_, err = s.index.Restore(f)
+	if err == nil {
+		s.recountStoredBytes()
 	}
 
-	now := time.Now()
-
-	for _, pe := range entries {
-		if _, err := os.Stat(s.pathForVersion(pe.Version)); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-
-			return err
-		}
-
-		ctx := context.Background()
-		if pe.ExpireAt.UnixNano() != 0 {
-			ctx = cache.WithTTL(ctx, pe.ExpireAt.Sub(now), false)
-		}
-
-		entry := &storedEntry{
-			storage: s,
-			meta:    pe.Meta,
-			version: pe.Version,
-		}
-
-		s.ensureRuntime(pe.Version, s.pathForVersion(pe.Version))
-
-		if err := s.index.Write(ctx, pe.Key, entry); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return err
 }
 
-func (s *Storage) dumpIndex() error {
-	entries := make([]persistedEntry, 0)
+func (s *Storage[K]) recountStoredBytes() {
+	var total int64
 
-	_, err := s.index.Walk(func(entry cache.EntryOf[blob.Entry]) error {
-		se, ok := entry.Value().(*storedEntry)
-		if !ok || se == nil {
-			return fmt.Errorf("unexpected entry type %T", entry.Value())
+	_, _ = s.index.Walk(func(entry cache.EntryBy[K, storedEntry]) error {
+		if size := entry.Value().Meta.Size; size > 0 {
+			total += size
 		}
-
-		key := append([]byte(nil), entry.Key()...)
-		entries = append(entries, persistedEntry{
-			Key:      key,
-			Meta:     se.meta,
-			Version:  se.version,
-			ExpireAt: entry.ExpireAt(),
-		})
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
 
+	atomic.StoreInt64(&s.bytes, total)
+}
+
+func (s *Storage[K]) dumpIndex() (err error) {
 	tmp, err := os.CreateTemp(s.dir, indexFileName+".tmp-*")
 	if err != nil {
 		return err
 	}
 
 	tmpName := tmp.Name()
+
 	defer func() {
-		_ = os.Remove(tmpName)
+		if tmp != nil {
+			if clErr := tmp.Close(); clErr != nil && err == nil {
+				err = clErr
+			}
+		}
+
+		if rmErr := os.Remove(tmpName); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) && err == nil {
+			err = rmErr
+		}
 	}()
 
-	if err := gob.NewEncoder(tmp).Encode(entries); err != nil {
-		_ = tmp.Close()
-
+	_, err = s.index.Dump(tmp)
+	if err != nil {
 		return err
 	}
 
@@ -431,74 +491,22 @@ func (s *Storage) dumpIndex() error {
 		return err
 	}
 
+	tmp = nil
+
 	return os.Rename(tmpName, filepath.Join(s.dir, indexFileName))
 }
 
-func (s *Storage) reconcileFiles() error {
-	referenced := make(map[string]struct{})
-	busyPaths := make(map[string]struct{})
-
-	_, err := s.index.Walk(func(entry cache.EntryOf[blob.Entry]) error {
-		se, ok := entry.Value().(*storedEntry)
-		if !ok || se == nil {
-			return fmt.Errorf("unexpected entry type %T", entry.Value())
-		}
-
-		referenced[s.pathForVersion(se.version)] = struct{}{}
-
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	for _, rt := range s.runtime {
-		if atomic.LoadInt64(&rt.refs) > 0 {
-			busyPaths[rt.path] = struct{}{}
-		}
-	}
-	s.mu.Unlock()
-
-	return filepath.Walk(s.dataDir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		if filepath.Ext(path) != fileExt && filepath.Ext(path) != ".tmp" {
-			return nil
-		}
-
-		if filepath.Ext(path) == ".tmp" {
-			//nolint:gosec // Reconciliation only removes files under application-owned cache storage.
-			return os.Remove(path)
-		}
-
-		if _, busy := busyPaths[path]; busy {
-			return nil
-		}
-
-		if _, ok := referenced[path]; ok {
-			return nil
-		}
-
-		//nolint:gosec // Reconciliation only removes files under application-owned cache storage.
-		return os.Remove(path)
-	})
-}
-
-func (s *Storage) pathForVersion(version string) string {
+func (s *Storage[K]) pathForVersion(version string) string {
 	path := s.dataDir
-	if len(version) >= 2 {
-		path = filepath.Join(path, version[:2])
-	}
 
-	if len(version) >= 4 {
-		path = filepath.Join(path, version[2:4])
+	if s.split != nil {
+		for _, segment := range s.split(version) {
+			if segment == "" {
+				continue
+			}
+
+			path = filepath.Join(path, segment)
+		}
 	}
 
 	return filepath.Join(path, version+fileExt)
@@ -517,16 +525,29 @@ type trackedFile struct {
 	*os.File
 
 	once    sync.Once
-	release func()
+	release func() error
+	relErr  error
 }
 
 func (t *trackedFile) Close() error {
 	err := t.File.Close()
 	t.once.Do(func() {
 		if t.release != nil {
-			t.release()
+			t.relErr = t.release()
 		}
 	})
 
-	return err
+	return joinErr(err, t.relErr)
+}
+
+func joinErr(err error, other error) error {
+	if err == nil {
+		return other
+	}
+
+	if other == nil {
+		return err
+	}
+
+	return fmt.Errorf("%v: %w", err, other)
 }

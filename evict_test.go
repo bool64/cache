@@ -40,8 +40,10 @@ type evictInterface interface {
 
 func TestShardedMap_evictHeapInuse(t *testing.T) {
 	for _, be := range backends(Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
-		ExpirationJitter:   -1,
+		Policy: Policy{
+			HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
+			ExpirationJitter:   -1,
+		},
 	}.Use) {
 		m, ok := be.(evictInterface)
 
@@ -86,8 +88,10 @@ func TestShardedMap_evictHeapInuse(t *testing.T) {
 
 func TestShardedMap_evictHeapInuse_disabled(t *testing.T) {
 	for _, be := range backends(Config{
-		HeapInUseSoftLimit: 0, // Setting heap threshold to 0 to disable eviction.
-		ExpirationJitter:   -1,
+		Policy: Policy{
+			HeapInUseSoftLimit: 0, // Setting heap threshold to 0 to disable eviction.
+			ExpirationJitter:   -1,
+		},
 	}.Use) {
 		m, ok := be.(evictInterface)
 
@@ -109,8 +113,10 @@ func TestShardedMap_evictHeapInuse_disabled(t *testing.T) {
 
 func TestShardedMap_evictHeapInuse_skipped(t *testing.T) {
 	for _, be := range backends(Config{
-		HeapInUseSoftLimit: 1e10, // Setting heap threshold to big value to skip eviction.
-		ExpirationJitter:   -1,
+		Policy: Policy{
+			HeapInUseSoftLimit: 1e10, // Setting heap threshold to big value to skip eviction.
+			ExpirationJitter:   -1,
+		},
 	}.Use) {
 		m, ok := be.(evictInterface)
 
@@ -132,7 +138,9 @@ func TestShardedMap_evictHeapInuse_skipped(t *testing.T) {
 
 func TestShardedMap_evictHeapInuse_concurrency(t *testing.T) {
 	for _, be := range backends(Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B value to force eviction.
+		Policy: Policy{
+			HeapInUseSoftLimit: 1, // Setting heap threshold to 1B value to force eviction.
+		},
 	}.Use) {
 		m, ok := be.(evictInterface)
 
@@ -163,8 +171,10 @@ func TestShardedMap_evictHeapInuse_concurrency(t *testing.T) {
 
 func TestShardedMap_evictHeapInuse_noTTL(t *testing.T) {
 	for _, be := range backends(Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
-		ExpirationJitter:   -1,
+		Policy: Policy{
+			HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
+			ExpirationJitter:   -1,
+		},
 	}.Use) {
 		m, ok := be.(evictInterface)
 

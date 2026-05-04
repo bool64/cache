@@ -149,7 +149,7 @@ type Trait struct {
 	Len           func() int
 	Evict         func(fraction float64) int
 
-	Config Config
+	Config Policy
 	Stat   StatsTracker
 	Log    logTrait
 
@@ -157,7 +157,7 @@ type Trait struct {
 }
 
 // NewTrait instantiates new Trait.
-func NewTrait(config Config, options ...func(t *Trait)) *Trait {
+func NewTrait(config Policy, options ...func(t *Trait)) *Trait {
 	if config.DeleteExpiredAfter == 0 {
 		config.DeleteExpiredAfter = 24 * time.Hour
 	}

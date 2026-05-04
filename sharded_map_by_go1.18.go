@@ -5,6 +5,9 @@ package cache
 
 import (
 	"context"
+	"encoding/gob"
+	"errors"
+	"io"
 	"runtime"
 	"sort"
 	"sync"
@@ -15,6 +18,8 @@ import (
 var (
 	_ ReadWriterBy[string, any] = &shardedMapBy[string, any]{}
 	_ WalkerBy[string, any]     = &shardedMapBy[string, any]{}
+	_ Dumper                    = &ShardedMapBy[string, any]{}
+	_ Restorer                  = &ShardedMapBy[string, any]{}
 )
 
 // ShardedMapBy is an in-memory cache backend with typed keys. Please use NewShardedMapBy to create it.
@@ -34,7 +39,8 @@ type evictLeastEntryBy[K comparable] struct {
 }
 
 type shardedMapBy[K comparable, V any] struct {
-	shard func(K) uint64
+	shard    func(K) uint64
+	onDelete func(K, V)
 
 	hashedBuckets [shards]keyedBucketBy[K, V]
 
@@ -42,7 +48,7 @@ type shardedMapBy[K comparable, V any] struct {
 }
 
 // NewShardedMapBy creates an instance of in-memory cache with typed keys and optional configuration.
-func NewShardedMapBy[K comparable, V any](options ...func(cfg *ConfigBy[K])) *ShardedMapBy[K, V] {
+func NewShardedMapBy[K comparable, V any](options ...func(cfg *ConfigBy[K, V])) *ShardedMapBy[K, V] {
 	c := &shardedMapBy[K, V]{}
 	C := &ShardedMapBy[K, V]{
 		shardedMapBy: c,
@@ -52,12 +58,13 @@ func NewShardedMapBy[K comparable, V any](options ...func(cfg *ConfigBy[K])) *Sh
 		c.hashedBuckets[i].data = make(map[K]*TraitEntryBy[K, V])
 	}
 
-	cfg := ConfigBy[K]{}
+	cfg := ConfigBy[K, V]{}
 	for _, option := range options {
 		option(&cfg)
 	}
 
 	c.shard = resolveShardFunc(cfg)
+	c.onDelete = cfg.OnDeleteBy
 
 	evict := c.evictMostExpired
 
@@ -65,7 +72,7 @@ func NewShardedMapBy[K comparable, V any](options ...func(cfg *ConfigBy[K])) *Sh
 		evict = c.evictLeastCounter
 	}
 
-	c.t = NewTraitBy[K, V](cfg.Config, func(t *Trait) {
+	c.t = NewTraitBy[K, V](cfg.Policy, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.Evict = evict
@@ -137,17 +144,21 @@ func (c *shardedMapBy[K, V]) Write(ctx context.Context, key K, v V) error {
 
 // Delete removes value by the key.
 func (c *shardedMapBy[K, V]) Delete(ctx context.Context, key K) error {
-	h := c.shard(key)
-	b := &c.hashedBuckets[h%shards]
+	b := &c.hashedBuckets[c.shard(key)%shards]
 
 	b.Lock()
-	defer b.Unlock()
+	removed, found := b.data[key]
 
-	if _, found := b.data[key]; !found {
+	if !found {
+		b.Unlock()
+
 		return ErrNotFound
 	}
 
 	delete(b.data, key)
+	b.Unlock()
+
+	c.notifyDeletedEntry(*removed)
 
 	c.t.NotifyDeleted(ctx, key)
 
@@ -179,12 +190,23 @@ func (c *shardedMapBy[K, V]) ExpireAll(ctx context.Context) {
 func (c *shardedMapBy[K, V]) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
+	collectRemoved := c.onDelete != nil
+
+	var removed []TraitEntryBy[K, V]
+
+	if collectRemoved {
+		removed = make([]TraitEntryBy[K, V], 0)
+	}
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
 
 		b.Lock()
-		for k := range c.hashedBuckets[i].data {
+		for k, v := range c.hashedBuckets[i].data {
+			if collectRemoved {
+				removed = append(removed, *v)
+			}
+
 			delete(b.data, k)
 
 			cnt++
@@ -192,11 +214,19 @@ func (c *shardedMapBy[K, V]) DeleteAll(ctx context.Context) {
 		b.Unlock()
 	}
 
+	c.notifyDeletedEntries(removed)
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
 func (c *shardedMapBy[K, V]) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
+	collectRemoved := c.onDelete != nil
+
+	var removed []TraitEntryBy[K, V]
+
+	if collectRemoved {
+		removed = make([]TraitEntryBy[K, V], 0)
+	}
 
 	for i := range c.hashedBuckets {
 		b := &c.hashedBuckets[i]
@@ -204,11 +234,17 @@ func (c *shardedMapBy[K, V]) deleteExpired(before time.Time) {
 		b.Lock()
 		for k, v := range b.data {
 			if v.E < beforeTS {
+				if collectRemoved {
+					removed = append(removed, *v)
+				}
+
 				delete(b.data, k)
 			}
 		}
 		b.Unlock()
 	}
+
+	c.notifyDeletedEntries(removed)
 }
 
 // Len returns number of elements in cache.
@@ -297,9 +333,76 @@ func (c *shardedMapBy[K, V]) evictLeast(evictFraction float64, val func(i *Trait
 		b := &c.hashedBuckets[e.shard]
 
 		b.Lock()
+		if removed, found := b.data[e.key]; found {
+			c.notifyDeletedEntry(*removed)
+		}
+
 		delete(b.data, e.key)
 		b.Unlock()
 	}
 
 	return evictItems
+}
+
+func (c *shardedMapBy[K, V]) notifyDeletedEntries(entries []TraitEntryBy[K, V]) {
+	if c.onDelete == nil {
+		return
+	}
+
+	for _, entry := range entries {
+		c.onDelete(entry.K, entry.V)
+	}
+}
+
+func (c *shardedMapBy[K, V]) notifyDeletedEntry(entry TraitEntryBy[K, V]) {
+	if c.onDelete != nil {
+		c.onDelete(entry.K, entry.V)
+	}
+}
+
+// Dump saves cached entries and returns a number of processed entries.
+//
+// Dump uses encoding/gob to serialize cache entries, therefore it is necessary to
+// register cached types in advance with cache.GobRegister.
+func (c *ShardedMapBy[K, V]) Dump(w io.Writer) (int, error) {
+	encoder := gob.NewEncoder(w)
+
+	return c.Walk(func(e EntryBy[K, V]) error {
+		return encoder.Encode(e)
+	})
+}
+
+// Restore loads cached entries and returns number of processed entries.
+//
+// Restore uses encoding/gob to unserialize cache entries, therefore it is necessary to
+// register cached types in advance with cache.GobRegister.
+func (c *ShardedMapBy[K, V]) Restore(r io.Reader) (int, error) {
+	var (
+		decoder = gob.NewDecoder(r)
+		n       = 0
+	)
+
+	for {
+		var e TraitEntryBy[K, V]
+
+		err := decoder.Decode(&e)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return n, err
+		}
+
+		h := c.shard(e.K)
+		b := &c.hashedBuckets[h%shards]
+
+		b.Lock()
+		b.data[e.K] = &e
+		b.Unlock()
+
+		n++
+	}
+
+	return n, nil
 }

@@ -16,7 +16,7 @@ type TraitOf[V any] struct {
 }
 
 // NewTraitOf instantiates new TraitOf.
-func NewTraitOf[V any](config Config, options ...func(t *Trait)) *TraitOf[V] {
+func NewTraitOf[V any](config Policy, options ...func(t *Trait)) *TraitOf[V] {
 	t := &TraitOf[V]{}
 
 	t.Trait = *NewTrait(config, options...)

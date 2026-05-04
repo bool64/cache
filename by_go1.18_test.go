@@ -4,6 +4,7 @@
 package cache_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"runtime"
@@ -21,13 +22,13 @@ import (
 	"github.com/swaggest/assertjson"
 )
 
-func backendsBy[V any](options ...func(*cache.Config)) []interface {
+func backendsBy[V any](options ...func(*cache.Policy)) []interface {
 	cache.ReadWriterBy[string, V]
 	Len() int
 } {
-	sharded := cache.NewShardedMapBy[string, V](func(cfg *cache.ConfigBy[string]) {
+	sharded := cache.NewShardedMapBy[string, V](func(cfg *cache.ConfigBy[string, V]) {
 		for _, option := range options {
-			option(&cfg.Config)
+			option(&cfg.Policy)
 		}
 	})
 
@@ -36,7 +37,11 @@ func backendsBy[V any](options ...func(*cache.Config)) []interface {
 		Len() int
 	}{
 		sharded,
-		cache.NewSyncMapBy[string, V](options...),
+		cache.NewSyncMapBy[string, V](func(cfg *cache.ConfigBy[string, V]) {
+			for _, option := range options {
+				option(&cfg.Policy)
+			}
+		}),
 	}
 }
 
@@ -49,7 +54,7 @@ func TestNewShardedMapBy(t *testing.T) {
 	st := stats.TrackerMock{}
 
 	func() {
-		c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string]) {
+		c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string, string]) {
 			config.Logger = &logger
 			config.Stats = &st
 			config.Name = "test"
@@ -137,7 +142,7 @@ func TestNewShardedMapBy_noExpiration(t *testing.T) {
 	st := stats.TrackerMock{}
 
 	func() {
-		c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string]) {
+		c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string, string]) {
 			config.Logger = &logger
 			config.Stats = &st
 			config.Name = "test"
@@ -221,7 +226,7 @@ cache_write{name="test"} 1`, st.Metrics())
 }
 
 func TestNewShardedMapBy_Load_Store(t *testing.T) {
-	c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string]) {
+	c := cache.NewShardedMapBy[string, string](func(config *cache.ConfigBy[string, string]) {
 		config.Name = "test"
 		config.TimeToLive = time.Hour
 	})
@@ -238,7 +243,7 @@ func TestNewSyncMapBy(t *testing.T) {
 	st := stats.TrackerMock{}
 
 	func() {
-		c := cache.NewSyncMapBy[string, string](func(config *cache.Config) {
+		c := cache.NewSyncMapBy[string, string](func(config *cache.ConfigBy[string, string]) {
 			config.Logger = &logger
 			config.Stats = &st
 			config.Name = "test"
@@ -342,7 +347,7 @@ func TestNewShardedMapBy_customSharder(t *testing.T) {
 		ID int
 	}
 
-	c := cache.NewShardedMapBy[key, string](func(cfg *cache.ConfigBy[key]) {
+	c := cache.NewShardedMapBy[key, string](func(cfg *cache.ConfigBy[key, string]) {
 		cfg.TimeToLive = time.Hour
 		cfg.ShardFunc = func(k key) uint64 {
 			return uint64(k.ID)
@@ -353,6 +358,65 @@ func TestNewShardedMapBy_customSharder(t *testing.T) {
 	require.NoError(t, c.Write(ctx, key{ID: 7}, "bar"))
 
 	v, err := c.Read(ctx, key{ID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, "bar", v)
+}
+
+func TestShardedMapBy_OnDelete(t *testing.T) {
+	var deleted []string
+
+	c := cache.NewShardedMapBy[string, string](func(cfg *cache.ConfigBy[string, string]) {
+		cfg.OnDeleteBy = func(key string, value string) {
+			deleted = append(deleted, key+":"+value)
+		}
+	})
+
+	ctx := context.Background()
+	require.NoError(t, c.Write(ctx, "k1", "v1"))
+	require.NoError(t, c.Write(ctx, "k2", "v2"))
+
+	require.NoError(t, c.Delete(ctx, "k1"))
+	c.DeleteAll(ctx)
+
+	assert.ElementsMatch(t, []string{"k1:v1", "k2:v2"}, deleted)
+}
+
+func TestShardedMapBy_DumpRestore_customSharder(t *testing.T) {
+	type key struct {
+		ID int
+	}
+
+	newCache := func() *cache.ShardedMapBy[key, string] {
+		return cache.NewShardedMapBy[key, string](func(cfg *cache.ConfigBy[key, string]) {
+			cfg.TimeToLive = time.Hour
+			cfg.ShardFunc = func(k key) uint64 {
+				return uint64(k.ID)
+			}
+		})
+	}
+
+	c1 := newCache()
+	c2 := newCache()
+	ctx := context.Background()
+
+	require.NoError(t, c1.Write(ctx, key{ID: 7}, "foo"))
+	require.NoError(t, c1.Write(ctx, key{ID: 11}, "bar"))
+
+	buf := bytes.NewBuffer(nil)
+
+	n, err := c1.Dump(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	n, err = c2.Restore(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	v, err := c2.Read(ctx, key{ID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, "foo", v)
+
+	v, err = c2.Read(ctx, key{ID: 11})
 	require.NoError(t, err)
 	assert.Equal(t, "bar", v)
 }
@@ -540,7 +604,7 @@ func TestFailoverBy_Get_FailedUpdateTTL(t *testing.T) {
 }
 
 func TestFailoverBy_Get_BackgroundUpdate(t *testing.T) {
-	for _, be := range backendsBy[string](func(config *cache.Config) {
+	for _, be := range backendsBy[string](func(config *cache.Policy) {
 		config.TimeToLive = time.Millisecond
 		config.ExpirationJitter = -1
 	}) {
@@ -590,7 +654,7 @@ func TestFailoverBy_Get_BackgroundUpdate(t *testing.T) {
 }
 
 func TestFailoverBy_Get_BackgroundUpdateMaxExpiration(t *testing.T) {
-	for _, be := range backendsBy[string](func(config *cache.Config) {
+	for _, be := range backendsBy[string](func(config *cache.Policy) {
 		config.TimeToLive = time.Millisecond
 		config.ExpirationJitter = -1
 	}) {
@@ -629,7 +693,7 @@ func TestFailoverBy_Get_BackgroundUpdateMaxExpiration(t *testing.T) {
 }
 
 func TestFailoverBy_Get_SyncUpdate(t *testing.T) {
-	for _, be := range backendsBy[string](func(config *cache.Config) {
+	for _, be := range backendsBy[string](func(config *cache.Policy) {
 		config.TimeToLive = time.Millisecond
 		config.ExpirationJitter = -1
 	}) {
@@ -669,7 +733,7 @@ func TestFailoverBy_Get_SyncUpdate(t *testing.T) {
 func TestFailoverBy_Get_staleBlock(t *testing.T) {
 	st := &stats.TrackerMock{}
 
-	for _, be := range backendsBy[int](func(config *cache.Config) {
+	for _, be := range backendsBy[int](func(config *cache.Policy) {
 		config.Stats = st
 	}) {
 		be := be
@@ -739,7 +803,7 @@ func TestFailoverBy_Get_staleBlock(t *testing.T) {
 func TestFailoverBy_Get_staleValue(t *testing.T) {
 	st := &stats.TrackerMock{}
 
-	for _, be := range backendsBy[int](func(config *cache.Config) {
+	for _, be := range backendsBy[int](func(config *cache.Policy) {
 		config.Stats = st
 	}) {
 		be := be
@@ -839,7 +903,7 @@ func TestFailoverBy_Get_updateErr(t *testing.T) {
 func TestFailoverBy_Get_misses(t *testing.T) {
 	st := &stats.TrackerMock{}
 
-	for _, be := range backendsBy[int](func(config *cache.Config) {
+	for _, be := range backendsBy[int](func(config *cache.Policy) {
 		config.Stats = st
 	}) {
 		be := be
@@ -887,7 +951,7 @@ func TestFailoverBy_Get_misses(t *testing.T) {
 }
 
 func TestFailoverBy_Get_alwaysFail(t *testing.T) {
-	for _, be := range backendsBy[int](func(config *cache.Config) {
+	for _, be := range backendsBy[int](func(config *cache.Policy) {
 		config.TimeToLive = time.Minute
 	}) {
 		be := be

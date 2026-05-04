@@ -195,7 +195,7 @@ func init() {
 
 	ReadWriters = append(ReadWriters,
 		ReadWriterByRunner{F: func() cache.ReadWriterBy[string, SmallCachedValue] {
-			return cache.NewShardedMapBy[string, SmallCachedValue](func(cfg *cache.ConfigBy[string]) {
+			return cache.NewShardedMapBy[string, SmallCachedValue](func(cfg *cache.ConfigBy[string, SmallCachedValue]) {
 				cfg.CountSoftLimit = 1e10
 				cfg.EvictionStrategy = cache.EvictLeastRecentlyUsed
 			})

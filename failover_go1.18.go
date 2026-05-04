@@ -21,7 +21,7 @@ type FailoverConfigOf[V any] struct {
 	Backend ReadWriterOf[V]
 
 	// BackendConfig is a configuration for ShardedMap cache instance if Backend is not provided.
-	BackendConfig Config
+	BackendConfig ConfigOf[V]
 
 	// FailedUpdateTTL is ttl of failed build cache, default 20s, -1 disables errors cache.
 	FailedUpdateTTL time.Duration
@@ -111,15 +111,17 @@ func NewFailoverOf[V any](options ...func(cfg *FailoverConfigOf[V])) *FailoverOf
 	f.wr, _ = f.backend.(WriteAndReaderOf[V])
 
 	if cfg.FailedUpdateTTL > -1 {
-		f.Errors = NewShardedMapOf[error](Config{
-			Name:       "err_" + cfg.Name,
-			Logger:     cfg.Logger,
-			Stats:      cfg.Stats,
-			TimeToLive: cfg.FailedUpdateTTL,
+		f.Errors = NewShardedMapOf[error](ConfigOf[error]{
+			Policy: Policy{
+				Name:       "err_" + cfg.Name,
+				Logger:     cfg.Logger,
+				Stats:      cfg.Stats,
+				TimeToLive: cfg.FailedUpdateTTL,
 
-			// Short cleanup intervals to avoid storing potentially heavy errors for long time.
-			DeleteExpiredAfter:       time.Minute,
-			DeleteExpiredJobInterval: time.Minute,
+				// Short cleanup intervals to avoid storing potentially heavy errors for long time.
+				DeleteExpiredAfter:       time.Minute,
+				DeleteExpiredJobInterval: time.Minute,
+			},
 		}.Use)
 	}
 

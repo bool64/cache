@@ -122,14 +122,16 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 
 	if cfg.FailedUpdateTTL > -1 {
 		f.Errors = NewShardedMap(Config{
-			Name:       "err_" + cfg.Name,
-			Logger:     cfg.Logger,
-			Stats:      cfg.Stats,
-			TimeToLive: cfg.FailedUpdateTTL,
+			Policy: Policy{
+				Name:       "err_" + cfg.Name,
+				Logger:     cfg.Logger,
+				Stats:      cfg.Stats,
+				TimeToLive: cfg.FailedUpdateTTL,
 
-			// Short cleanup intervals to avoid storing potentially heavy errors for long time.
-			DeleteExpiredAfter:       time.Minute,
-			DeleteExpiredJobInterval: time.Minute,
+				// Short cleanup intervals to avoid storing potentially heavy errors for long time.
+				DeleteExpiredAfter:       time.Minute,
+				DeleteExpiredJobInterval: time.Minute,
+			},
 		}.Use)
 	}
 

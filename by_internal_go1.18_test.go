@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func backendsByInternal[V any](options ...func(*Config)) []interface {
+func backendsByInternal[V any](options ...func(*Policy)) []interface {
 	ReadWriterBy[string, V]
 	Len() int
 } {
@@ -23,12 +23,16 @@ func backendsByInternal[V any](options ...func(*Config)) []interface {
 		ReadWriterBy[string, V]
 		Len() int
 	}{
-		NewShardedMapBy[string, V](func(cfg *ConfigBy[string]) {
+		NewShardedMapBy[string, V](func(cfg *ConfigBy[string, V]) {
 			for _, option := range options {
-				option(&cfg.Config)
+				option(&cfg.Policy)
 			}
 		}),
-		NewSyncMapBy[string, V](options...),
+		NewSyncMapBy[string, V](func(cfg *ConfigBy[string, V]) {
+			for _, option := range options {
+				option(&cfg.Policy)
+			}
+		}),
 	}
 }
 
@@ -39,10 +43,10 @@ type evictInterfaceBy[V any] interface {
 }
 
 func TestBy_evictHeapInuse(t *testing.T) {
-	for _, be := range backendsByInternal[int](Config{
-		HeapInUseSoftLimit: 1,
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsByInternal[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceBy[int])
 		require.True(t, ok)
 
@@ -81,10 +85,10 @@ func TestBy_evictHeapInuse(t *testing.T) {
 }
 
 func TestBy_evictHeapInuse_noTTL(t *testing.T) {
-	for _, be := range backendsByInternal[int](Config{
-		HeapInUseSoftLimit: 1,
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsByInternal[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceBy[int])
 		require.True(t, ok)
 

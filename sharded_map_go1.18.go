@@ -39,11 +39,12 @@ type shardedMapOf[V any] struct {
 
 	hashedBuckets [shards]hashedBucketOf[V]
 
-	t *TraitOf[V]
+	onDelete func([]byte, V)
+	t        *TraitOf[V]
 }
 
 // NewShardedMapOf creates an instance of in-memory cache with optional configuration.
-func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
+func NewShardedMapOf[V any](options ...func(cfg *ConfigOf[V])) *ShardedMapOf[V] {
 	c := &shardedMapOf[V]{}
 	C := &ShardedMapOf[V]{
 		shardedMapOf: c,
@@ -53,10 +54,12 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		c.hashedBuckets[i].data = make(map[uint64]*TraitEntryOf[V])
 	}
 
-	cfg := Config{}
+	cfg := ConfigOf[V]{}
 	for _, option := range options {
 		option(&cfg)
 	}
+
+	c.onDelete = cfg.OnDelete
 
 	evict := c.evictMostExpired
 
@@ -64,7 +67,7 @@ func NewShardedMapOf[V any](options ...func(cfg *Config)) *ShardedMapOf[V] {
 		evict = c.evictLeastCounter
 	}
 
-	c.t = NewTraitOf[V](cfg, func(t *Trait) {
+	c.t = NewTraitOf[V](cfg.Policy, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.Evict = evict
@@ -196,7 +199,7 @@ func (c *shardedMapOf[V]) ExpireAll(ctx context.Context) {
 func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
-	collectRemoved := c.t.Config.OnDelete != nil
+	collectRemoved := c.onDelete != nil
 
 	var removed []TraitEntryOf[V]
 
@@ -226,7 +229,7 @@ func (c *shardedMapOf[V]) DeleteAll(ctx context.Context) {
 
 func (c *shardedMapOf[V]) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
-	collectRemoved := c.t.Config.OnDelete != nil
+	collectRemoved := c.onDelete != nil
 
 	var removed []TraitEntryOf[V]
 
@@ -452,17 +455,17 @@ func (c *shardedMapOf[V]) evictLeast(evictFraction float64, val func(i *TraitEnt
 }
 
 func (c *shardedMapOf[V]) notifyDeletedEntries(entries []TraitEntryOf[V]) {
-	if c.t.Config.OnDelete == nil {
+	if c.onDelete == nil {
 		return
 	}
 
 	for _, entry := range entries {
-		c.t.Config.OnDelete(entry.K, entry.V)
+		c.onDelete(entry.K, entry.V)
 	}
 }
 
 func (c *shardedMapOf[V]) notifyDeletedEntry(entry TraitEntryOf[V]) {
-	if c.t.Config.OnDelete != nil {
-		c.t.Config.OnDelete(entry.K, entry.V)
+	if c.onDelete != nil {
+		c.onDelete(entry.K, entry.V)
 	}
 }
