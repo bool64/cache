@@ -5,6 +5,9 @@ package cache
 
 import (
 	"context"
+	"encoding/gob"
+	"errors"
+	"io"
 	"runtime"
 	"sort"
 	"sync"
@@ -15,6 +18,8 @@ import (
 var (
 	_ ReadWriterBy[string, any] = &shardedMapBy[string, any]{}
 	_ WalkerBy[string, any]     = &shardedMapBy[string, any]{}
+	_ Dumper                    = &ShardedMapBy[string, any]{}
+	_ Restorer                  = &ShardedMapBy[string, any]{}
 )
 
 // ShardedMapBy is an in-memory cache backend with typed keys. Please use NewShardedMapBy to create it.
@@ -302,4 +307,51 @@ func (c *shardedMapBy[K, V]) evictLeast(evictFraction float64, val func(i *Trait
 	}
 
 	return evictItems
+}
+
+// Dump saves cached entries and returns a number of processed entries.
+//
+// Dump uses encoding/gob to serialize cache entries, therefore it is necessary to
+// register cached types in advance with cache.GobRegister.
+func (c *ShardedMapBy[K, V]) Dump(w io.Writer) (int, error) {
+	encoder := gob.NewEncoder(w)
+
+	return c.Walk(func(e EntryBy[K, V]) error {
+		return encoder.Encode(e)
+	})
+}
+
+// Restore loads cached entries and returns number of processed entries.
+//
+// Restore uses encoding/gob to unserialize cache entries, therefore it is necessary to
+// register cached types in advance with cache.GobRegister.
+func (c *ShardedMapBy[K, V]) Restore(r io.Reader) (int, error) {
+	var (
+		decoder = gob.NewDecoder(r)
+		n       = 0
+	)
+
+	for {
+		var e TraitEntryBy[K, V]
+
+		err := decoder.Decode(&e)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return n, err
+		}
+
+		h := c.shard(e.K)
+		b := &c.hashedBuckets[h%shards]
+
+		b.Lock()
+		b.data[e.K] = &e
+		b.Unlock()
+
+		n++
+	}
+
+	return n, nil
 }

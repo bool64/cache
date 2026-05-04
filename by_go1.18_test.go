@@ -4,6 +4,7 @@
 package cache_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"runtime"
@@ -353,6 +354,46 @@ func TestNewShardedMapBy_customSharder(t *testing.T) {
 	require.NoError(t, c.Write(ctx, key{ID: 7}, "bar"))
 
 	v, err := c.Read(ctx, key{ID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, "bar", v)
+}
+
+func TestShardedMapBy_DumpRestore_customSharder(t *testing.T) {
+	type key struct {
+		ID int
+	}
+
+	newCache := func() *cache.ShardedMapBy[key, string] {
+		return cache.NewShardedMapBy[key, string](func(cfg *cache.ConfigBy[key]) {
+			cfg.TimeToLive = time.Hour
+			cfg.ShardFunc = func(k key) uint64 {
+				return uint64(k.ID)
+			}
+		})
+	}
+
+	c1 := newCache()
+	c2 := newCache()
+	ctx := context.Background()
+
+	require.NoError(t, c1.Write(ctx, key{ID: 7}, "foo"))
+	require.NoError(t, c1.Write(ctx, key{ID: 11}, "bar"))
+
+	buf := bytes.NewBuffer(nil)
+
+	n, err := c1.Dump(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	n, err = c2.Restore(buf)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	v, err := c2.Read(ctx, key{ID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, "foo", v)
+
+	v, err = c2.Read(ctx, key{ID: 11})
 	require.NoError(t, err)
 	assert.Equal(t, "bar", v)
 }
