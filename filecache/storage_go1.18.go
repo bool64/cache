@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -207,7 +208,7 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 		}
 
 		if rmErr := os.Remove(tmpName); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-			err = errors.Join(err, rmErr)
+			err = joinErr(err, rmErr)
 		}
 	}()
 
@@ -399,9 +400,15 @@ func (s *Storage[K]) storedBytesOverflow() bool {
 	}
 
 	total := atomic.LoadInt64(&s.bytes)
-	total = max(total, 0)
+	if total < 0 {
+		total = 0
+	}
 
-	return uint64(total) > s.limit
+	if s.limit > math.MaxInt64 {
+		return false
+	}
+
+	return total > int64(s.limit)
 }
 
 func (s *Storage[K]) addStoredBytes(delta int64) {
@@ -530,5 +537,17 @@ func (t *trackedFile) Close() error {
 		}
 	})
 
-	return errors.Join(err, t.relErr)
+	return joinErr(err, t.relErr)
+}
+
+func joinErr(err error, other error) error {
+	if err == nil {
+		return other
+	}
+
+	if other == nil {
+		return err
+	}
+
+	return fmt.Errorf("%v: %w", err, other)
 }

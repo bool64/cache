@@ -44,7 +44,10 @@ func PrefixSplit(lengths ...int) func(version string) []string {
 				break
 			}
 
-			end := min(pos+n, len(version))
+			end := pos + n
+			if end > len(version) {
+				end = len(version)
+			}
 
 			segments = append(segments, version[pos:end])
 			pos = end

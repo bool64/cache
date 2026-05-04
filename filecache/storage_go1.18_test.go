@@ -159,7 +159,9 @@ func TestStorage_storedBytesSoftLimit(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		total := atomic.LoadInt64(&s.bytes)
-		total = max(total, 0)
+		if total < 0 {
+			total = 0
+		}
 
 		return s.index.Len() <= 2 && total <= 10
 	}, time.Second, 10*time.Millisecond)
