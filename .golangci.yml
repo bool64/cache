@@ -33,6 +33,7 @@ linters:
     - tagliatelle
     - testableexamples
     - testifylint
+    - modernize
     - varnamelen
     - wrapcheck
   settings:
