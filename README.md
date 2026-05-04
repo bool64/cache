@@ -107,8 +107,8 @@ with [`reflect.DeepEqual`](https://pkg.go.dev/reflect#DeepEqual) and may affect 
 
 ## Blob Cache
 
-For streamed file/blob workloads, the library also provides a blob-oriented abstraction and a local filesystem-backed
-storage implementation.
+For streamed file/blob workloads, the library also provides a blob-oriented abstraction and storage backends that let
+you keep the same application-facing API while changing storage economics as the dataset grows.
 
 [`blob.Entry`](https://pkg.go.dev/github.com/bool64/cache/blob#Entry) is a reopenable descriptor of content:
 
@@ -121,9 +121,15 @@ type Entry interface {
 
 This keeps the cached value stable while letting callers open a fresh reader on demand.
 
+The idea is to use one blob language across hot and cold tiers:
+
+* in-memory backends can return lightweight reopenable readers over bytes
+* `filecache` can spill colder data to local disk
+* future DB-backed blob storage can persist even larger datasets without changing caller code
+
 [`filecache.Storage`](https://pkg.go.dev/github.com/bool64/cache/filecache#Storage) implements
-[`cache.ReadWriterOf[blob.Entry]`](https://pkg.go.dev/github.com/bool64/cache#ReadWriterOf) and persists immutable blob
-files on local disk together with a compact in-memory index snapshot.
+[`cache.ReadWriterBy[K, blob.Entry]`](https://pkg.go.dev/github.com/bool64/cache#ReadWriterBy) and persists immutable
+blob files on local disk together with a compact in-memory index snapshot.
 
 Blob sources can be created with helpers from the [`blob`](https://pkg.go.dev/github.com/bool64/cache/blob) package,
 for example:
@@ -132,10 +138,24 @@ for example:
 * [`blob.FromReadCloser`](https://pkg.go.dev/github.com/bool64/cache/blob#FromReadCloser)
 * [`blob.FromHTTPResponse`](https://pkg.go.dev/github.com/bool64/cache/blob#FromHTTPResponse)
 
+Blob-specific retention settings live in
+[`blob.RetentionPolicy`](https://pkg.go.dev/github.com/bool64/cache/blob#RetentionPolicy), while cache/index behavior
+such as TTL and eviction strategy stays in [`cache.Policy`](https://pkg.go.dev/github.com/bool64/cache#Policy).
+
 Failover works with blob entries as well:
 
 ```go
-storage, _ := filecache.NewStorage("/var/cache/photos")
+storage, _ := filecache.NewStorage[string](
+    "/var/cache/photos",
+    filecache.Config[string]{
+        IndexPolicy: cache.Policy{
+            TimeToLive: cache.UnlimitedTTL,
+        },
+        RetentionPolicy: blob.RetentionPolicy{
+            StoredBytesSoftLimit: 1 << 30, // 1 GiB soft limit for stored payloads.
+        },
+    }.Use,
+)
 
 f := cache.NewFailoverOf[blob.Entry](func(cfg *cache.FailoverConfigOf[blob.Entry]) {
     cfg.Backend = storage
@@ -165,6 +185,11 @@ defer rc.Close()
 The local file-backed implementation currently requires explicit
 [`Storage.Close()`](https://pkg.go.dev/github.com/bool64/cache/filecache#Storage.Close) to flush the index snapshot on
 application shutdown.
+
+`filecache.Config[K]` also supports:
+
+* `IndexShardFunc` to customize typed-key shard routing for the in-memory index
+* `SplitPath` to control how blob version paths are partitioned into nested directories
 
 ## Sharded Map
 
@@ -239,7 +264,7 @@ bits are not well distributed. Mixing folds higher bits into lower ones before s
 distribution under concurrent access.
 
 For unsupported `K comparable` types, `NewShardedMapBy` panics at construction unless a custom sharder is configured in
-`ConfigBy[K]`. This keeps misconfiguration deterministic and avoids pushing sharder errors into hot-path APIs.
+`ConfigBy[K, V]`. This keeps misconfiguration deterministic and avoids pushing sharder errors into hot-path APIs.
 
 `ShardFunc` is also the escape hatch for performance-sensitive workloads. The built-in sharders are intended to be
 good general-purpose defaults, while a custom typed sharder can be slightly faster for hot paths with well-understood
