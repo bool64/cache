@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bool64/cache"
@@ -29,8 +30,9 @@ const (
 )
 
 var (
-	_ cache.ReadWriterBy[string, blob.Entry]     = (*Storage[string])(nil)
-	_ cache.WriteAndReaderBy[string, blob.Entry] = (*Storage[string])(nil)
+	_     cache.ReadWriterBy[string, blob.Entry]     = (*Storage[string])(nil)
+	_     cache.WriteAndReaderBy[string, blob.Entry] = (*Storage[string])(nil)
+	bgCtx                                            = context.Background()
 )
 
 // Storage is a local filesystem-backed blob storage.
@@ -41,6 +43,8 @@ type Storage[K comparable] struct {
 	index *cache.ShardedMapBy[K, storedEntry]
 	log   cache.Logger
 	split func(version string) []string
+	limit uint64
+	bytes int64
 
 	mu          sync.Mutex
 	openedFiles map[string]*openedFile
@@ -97,6 +101,7 @@ func NewStorage[K comparable](path string, options ...func(cfg *Config[K])) (*St
 		dataDir:     filepath.Join(path, dataDirName),
 		log:         cfg.IndexPolicy.Logger,
 		split:       cfg.SplitPath,
+		limit:       cfg.StoredBytesSoftLimit,
 		openedFiles: make(map[string]*openedFile),
 	}
 
@@ -107,10 +112,20 @@ func NewStorage[K comparable](path string, options ...func(cfg *Config[K])) (*St
 	s.index = cache.NewShardedMapBy[K, storedEntry](
 		cache.WithPolicyBy[K, storedEntry](cfg.IndexPolicy),
 		func(indexCfg *cache.ConfigBy[K, storedEntry]) {
+			origEvictionNeeded := indexCfg.EvictionNeeded
+
+			if s.limit > 0 {
+				indexCfg.EvictionNeeded = func() bool {
+					return s.storedBytesOverflow() || (origEvictionNeeded != nil && origEvictionNeeded())
+				}
+			}
+
 			indexCfg.ShardFunc = cfg.IndexShardFunc
 			indexCfg.OnDeleteBy = func(_ K, entry storedEntry) {
+				s.addStoredBytes(-entry.Meta.Size)
+
 				if rmErr := s.removeVersion(entry.Version); rmErr != nil && s.log != nil {
-					s.log.Error(context.Background(), "failed to delete blob file after index removal",
+					s.log.Error(bgCtx, "failed to delete blob file after index removal",
 						"error", rmErr,
 						"version", entry.Version,
 						"path", s.pathForVersion(entry.Version),
@@ -160,6 +175,7 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() {
 		if clErr := rc.Close(); clErr != nil && err == nil {
 			err = clErr
@@ -180,6 +196,7 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 	if err != nil {
 		return nil, err
 	}
+
 	tmpName := tmp.Name()
 
 	defer func() {
@@ -194,13 +211,15 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 		}
 	}()
 
-	if _, err := io.Copy(tmp, rc); err != nil {
+	size, err := io.Copy(tmp, rc)
+	if err != nil {
 		return nil, err
 	}
 
 	if err := tmp.Close(); err != nil {
 		return nil, err
 	}
+
 	tmp = nil
 
 	if err := os.Rename(tmpName, finalPath); err != nil {
@@ -211,17 +230,28 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 		Meta:    entry.Meta(),
 		Version: version,
 	}
+	newEntry.Meta.Size = size
 
 	oldEntry, oldEntryExists := s.currentEntry(ctx, key)
 
 	if err := s.index.Write(ctx, key, newEntry); err != nil {
-		s.markDead(version)
+		_ = s.removeVersion(version)
 
 		return nil, err
 	}
 
+	s.addStoredBytes(newEntry.Meta.Size)
+
 	if oldEntryExists {
-		s.markDead(oldEntry.Version)
+		s.addStoredBytes(-oldEntry.Meta.Size)
+
+		if rmErr := s.removeVersion(oldEntry.Version); rmErr != nil && s.log != nil {
+			s.log.Error(ctx, "failed to delete superseded blob file",
+				"error", rmErr,
+				"version", oldEntry.Version,
+				"path", s.pathForVersion(oldEntry.Version),
+			)
+		}
 	}
 
 	b := blobInstance{
@@ -269,7 +299,6 @@ func (s *Storage[K]) currentEntry(ctx context.Context, key K) (storedEntry, bool
 func (s *Storage[K]) openVersion(version string) (io.ReadCloser, error) {
 	s.acquireVersion(version)
 
-	//nolint:gosec // Path is derived from internal versioned storage layout, not external input.
 	f, err := os.Open(s.pathForVersion(version))
 	if err != nil {
 		_ = s.releaseVersion(version)
@@ -290,9 +319,11 @@ func (s *Storage[K]) releaseVersion(version string) error {
 
 	s.mu.Lock()
 	rt := s.openedFiles[version]
+
 	if rt != nil {
-		rt.refs -= 1
+		rt.refs--
 	}
+
 	s.mu.Unlock()
 
 	if rt == nil {
@@ -322,7 +353,7 @@ func (s *Storage[K]) acquireVersion(version string) *openedFile {
 
 	rt := s.openedFiles[version]
 	if rt != nil {
-		rt.refs += 1
+		rt.refs++
 
 		return rt
 	}
@@ -362,6 +393,30 @@ func (s *Storage[K]) removeVersion(version string) error {
 	return nil
 }
 
+func (s *Storage[K]) storedBytesOverflow() bool {
+	if s.limit == 0 {
+		return false
+	}
+
+	total := atomic.LoadInt64(&s.bytes)
+	total = max(total, 0)
+
+	return uint64(total) > s.limit
+}
+
+func (s *Storage[K]) addStoredBytes(delta int64) {
+	if delta == 0 {
+		return
+	}
+
+	total := atomic.AddInt64(&s.bytes, delta)
+	if total >= 0 {
+		return
+	}
+
+	atomic.StoreInt64(&s.bytes, 0)
+}
+
 func (s *Storage[K]) restoreIndex() (err error) {
 	f, err := os.Open(filepath.Join(s.dir, indexFileName))
 	if err != nil {
@@ -371,6 +426,7 @@ func (s *Storage[K]) restoreIndex() (err error) {
 
 		return err
 	}
+
 	defer func() {
 		if clErr := f.Close(); clErr != nil && err == nil {
 			err = clErr
@@ -378,7 +434,25 @@ func (s *Storage[K]) restoreIndex() (err error) {
 	}()
 
 	_, err = s.index.Restore(f)
+	if err == nil {
+		s.recountStoredBytes()
+	}
+
 	return err
+}
+
+func (s *Storage[K]) recountStoredBytes() {
+	var total int64
+
+	_, _ = s.index.Walk(func(entry cache.EntryBy[K, storedEntry]) error {
+		if size := entry.Value().Meta.Size; size > 0 {
+			total += size
+		}
+
+		return nil
+	})
+
+	atomic.StoreInt64(&s.bytes, total)
 }
 
 func (s *Storage[K]) dumpIndex() (err error) {
@@ -388,6 +462,7 @@ func (s *Storage[K]) dumpIndex() (err error) {
 	}
 
 	tmpName := tmp.Name()
+
 	defer func() {
 		if tmp != nil {
 			if clErr := tmp.Close(); clErr != nil && err == nil {
@@ -408,6 +483,7 @@ func (s *Storage[K]) dumpIndex() (err error) {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+
 	tmp = nil
 
 	return os.Rename(tmpName, filepath.Join(s.dir, indexFileName))

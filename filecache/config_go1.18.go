@@ -3,12 +3,18 @@
 
 package filecache
 
-import "github.com/bool64/cache"
+import (
+	"github.com/bool64/cache"
+	"github.com/bool64/cache/blob"
+)
 
 // Config controls file-backed storage layout and index behavior.
 type Config[K comparable] struct {
 	// IndexPolicy configures the in-memory index backend.
 	IndexPolicy cache.Policy
+
+	// RetentionPolicy configures blob-storage retention and eviction behavior.
+	blob.RetentionPolicy
 
 	// IndexShardFunc customizes shard selection in the typed in-memory index.
 	IndexShardFunc func(K) uint64
@@ -38,10 +44,7 @@ func PrefixSplit(lengths ...int) func(version string) []string {
 				break
 			}
 
-			end := pos + n
-			if end > len(version) {
-				end = len(version)
-			}
+			end := min(pos+n, len(version))
 
 			segments = append(segments, version[pos:end])
 			pos = end

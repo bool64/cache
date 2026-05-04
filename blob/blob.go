@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// RetentionPolicy contains blob-storage retention and eviction settings.
+type RetentionPolicy struct {
+	// StoredBytesSoftLimit triggers eviction when total stored blob size exceeds this limit.
+	// Zero disables the check.
+	StoredBytesSoftLimit uint64
+}
+
 // Meta describes a blob.
 type Meta struct {
 	Name    string

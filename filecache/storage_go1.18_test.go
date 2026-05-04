@@ -9,8 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/bool64/cache"
 	"github.com/bool64/cache/blob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,4 +131,54 @@ func TestStorage_customPathSplit(t *testing.T) {
 	expectedPath := filepath.Join(dir, dataDirName, entry.Version[:1], entry.Version+fileExt)
 	_, err = os.Stat(expectedPath)
 	require.NoError(t, err)
+}
+
+func TestStorage_storedBytesSoftLimit(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir, Config[string]{
+		IndexPolicy: cache.Policy{
+			TimeToLive:               cache.UnlimitedTTL,
+			DeleteExpiredJobInterval: time.Millisecond,
+			EvictFraction:            0.5,
+		},
+		RetentionPolicy: blob.RetentionPolicy{
+			StoredBytesSoftLimit: 10,
+		},
+	}.Use)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "k1", blob.FromReader(bytes.NewBufferString("12345"), blob.Meta{})))
+	require.NoError(t, s.Write(ctx, "k2", blob.FromReader(bytes.NewBufferString("12345"), blob.Meta{})))
+	require.NoError(t, s.Write(ctx, "k3", blob.FromReader(bytes.NewBufferString("12345"), blob.Meta{})))
+
+	require.Eventually(t, func() bool {
+		total := atomic.LoadInt64(&s.bytes)
+		total = max(total, 0)
+
+		return s.index.Len() <= 2 && total <= 10
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestStorage_rewriteUpdatesStoredBytes(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "same", blob.FromReader(bytes.NewBufferString("12345"), blob.Meta{})))
+	assert.Equal(t, int64(5), atomic.LoadInt64(&s.bytes))
+
+	require.NoError(t, s.Write(ctx, "same", blob.FromReader(bytes.NewBufferString("12"), blob.Meta{})))
+	assert.Equal(t, int64(2), atomic.LoadInt64(&s.bytes))
 }

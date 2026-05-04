@@ -144,11 +144,11 @@ func (c *shardedMapBy[K, V]) Write(ctx context.Context, key K, v V) error {
 
 // Delete removes value by the key.
 func (c *shardedMapBy[K, V]) Delete(ctx context.Context, key K) error {
-	h := c.shard(key)
-	b := &c.hashedBuckets[h%shards]
+	b := &c.hashedBuckets[c.shard(key)%shards]
 
 	b.Lock()
 	removed, found := b.data[key]
+
 	if !found {
 		b.Unlock()
 
