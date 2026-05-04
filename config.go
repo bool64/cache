@@ -2,8 +2,8 @@ package cache
 
 import "time"
 
-// Config controls cache instance.
-type Config struct {
+// Policy contains shared cache behavior, expiration, eviction, and observability settings.
+type Policy struct {
 	// Logger is an instance of contextualized logger, can be nil.
 	Logger Logger
 
@@ -60,6 +60,11 @@ type Config struct {
 
 	// EvictionStrategy is EvictMostExpired by default.
 	EvictionStrategy EvictionStrategy
+}
+
+// Config controls []byte -> any cache instances.
+type Config struct {
+	Policy
 
 	// OnDelete is called when an entry is removed from cache by Delete, DeleteAll, expiration cleanup, or eviction.
 	OnDelete func(key []byte, value interface{})
@@ -86,4 +91,11 @@ const (
 // Use is a functional option to apply configuration.
 func (c Config) Use(cfg *Config) {
 	*cfg = c
+}
+
+// WithPolicy applies shared policy to []byte -> any cache configuration.
+func WithPolicy(policy Policy) func(*Config) {
+	return func(cfg *Config) {
+		cfg.Policy = policy
+	}
 }

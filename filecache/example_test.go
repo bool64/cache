@@ -23,7 +23,7 @@ func ExampleFailover() {
 
 	defer os.RemoveAll(dir)
 
-	st, err := filecache.NewStorage(dir)
+	st, err := filecache.NewStorage[string](dir)
 	if err != nil {
 		panic(err)
 	}
@@ -32,11 +32,11 @@ func ExampleFailover() {
 		_ = st.Close()
 	}()
 
-	f := cache.NewFailoverOf[blob.Entry](func(cfg *cache.FailoverConfigOf[blob.Entry]) {
+	f := cache.NewFailoverBy[string, blob.Entry](func(cfg *cache.FailoverConfigBy[string, blob.Entry]) {
 		cfg.Backend = st
 	})
 
-	entry, err := f.Get(ctx, []byte("photo:1"), func(ctx context.Context) (blob.Entry, error) {
+	entry, err := f.Get(ctx, "photo:1", func(ctx context.Context) (blob.Entry, error) {
 		return blob.FromReader(bytes.NewBufferString("hello blob"), blob.Meta{
 			Name: "photo.txt",
 		}), nil

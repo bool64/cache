@@ -21,7 +21,7 @@ func TestNewShardedMapOf(t *testing.T) {
 	st := stats.TrackerMock{}
 
 	func() {
-		c := cache.NewShardedMapOf[string](func(config *cache.Config) {
+		c := cache.NewShardedMapOf[string](func(config *cache.ConfigOf[string]) {
 			config.Logger = &logger
 			config.Stats = &st
 			config.Name = "test"
@@ -113,7 +113,7 @@ func TestNewShardedMapOf_Load_Store(t *testing.T) {
 	logger := ctxd.LoggerMock{}
 	st := stats.TrackerMock{}
 
-	c := cache.NewShardedMapOf[string](func(config *cache.Config) {
+	c := cache.NewShardedMapOf[string](func(config *cache.ConfigOf[string]) {
 		config.Logger = &logger
 		config.Stats = &st
 		config.Name = "test"

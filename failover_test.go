@@ -203,8 +203,10 @@ func TestFailover_Get_BackgroundUpdate(t *testing.T) {
 				cache.FailoverConfig{
 					Logger: logger,
 					BackendConfig: cache.Config{
-						TimeToLive:       time.Millisecond,
-						ExpirationJitter: -1,
+						Policy: cache.Policy{
+							TimeToLive:       time.Millisecond,
+							ExpirationJitter: -1,
+						},
 					},
 					SyncRead: true,
 				}.Use,

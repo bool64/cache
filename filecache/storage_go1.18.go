@@ -39,6 +39,8 @@ type Storage[K comparable] struct {
 	dataDir string
 
 	index *cache.ShardedMapBy[K, storedEntry]
+	log   cache.Logger
+	split func(version string) []string
 
 	mu          sync.Mutex
 	openedFiles map[string]*openedFile
@@ -71,10 +73,30 @@ func (b *blobInstance) Open() (io.ReadCloser, error) {
 }
 
 // NewStorage creates a local filesystem-backed blob storage.
-func NewStorage[K comparable](path string) (*Storage[K], error) {
+func NewStorage[K comparable](path string, options ...func(cfg *Config[K])) (*Storage[K], error) {
+	cfg := Config[K]{}
+
+	for _, option := range options {
+		option(&cfg)
+	}
+
+	if cfg.IndexPolicy.Name == "" {
+		cfg.IndexPolicy.Name = "filecache:" + filepath.Base(path)
+	}
+
+	if cfg.IndexPolicy.TimeToLive == 0 {
+		cfg.IndexPolicy.TimeToLive = cache.UnlimitedTTL
+	}
+
+	if cfg.SplitPath == nil {
+		cfg.SplitPath = PrefixSplit(2, 2)
+	}
+
 	s := &Storage[K]{
 		dir:         path,
 		dataDir:     filepath.Join(path, dataDirName),
+		log:         cfg.IndexPolicy.Logger,
+		split:       cfg.SplitPath,
 		openedFiles: make(map[string]*openedFile),
 	}
 
@@ -82,17 +104,22 @@ func NewStorage[K comparable](path string) (*Storage[K], error) {
 		return nil, err
 	}
 
-	s.index = cache.NewShardedMapBy[K, storedEntry](cache.ConfigBy[K]{
-		Config: cache.Config{
-			Name:       "filecache:" + filepath.Base(path),
-			TimeToLive: cache.UnlimitedTTL,
-			OnDelete: func(_ []byte, value interface{}) {
-				if entry, ok := value.(storedEntry); ok {
-					s.markDead(entry.Version)
+	s.index = cache.NewShardedMapBy[K, storedEntry](
+		cache.WithPolicyBy[K, storedEntry](cfg.IndexPolicy),
+		func(indexCfg *cache.ConfigBy[K, storedEntry]) {
+			indexCfg.ShardFunc = cfg.IndexShardFunc
+			indexCfg.OnDeleteBy = func(_ K, entry storedEntry) {
+				if rmErr := s.removeVersion(entry.Version); rmErr != nil && s.log != nil {
+					s.log.Error(context.Background(), "failed to delete blob file after index removal",
+						"error", rmErr,
+						"version", entry.Version,
+						"path", s.pathForVersion(entry.Version),
+						"name", cfg.IndexPolicy.Name,
+					)
 				}
-			},
+			}
 		},
-	}.Use)
+	)
 
 	if err := s.restoreIndex(); err != nil {
 		s.index = nil
@@ -156,23 +183,25 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 	tmpName := tmp.Name()
 
 	defer func() {
-		if clErr := tmp.Close(); clErr != nil && err == nil {
-			err = clErr
+		if tmp != nil {
+			if clErr := tmp.Close(); clErr != nil && err == nil {
+				err = clErr
+			}
 		}
-		_ = os.Remove(tmpName)
+
+		if rmErr := os.Remove(tmpName); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
 	}()
 
 	if _, err := io.Copy(tmp, rc); err != nil {
 		return nil, err
 	}
 
-	if err := rc.Close(); err != nil {
-		return nil, err
-	}
-
 	if err := tmp.Close(); err != nil {
 		return nil, err
 	}
+	tmp = nil
 
 	if err := os.Rename(tmpName, finalPath); err != nil {
 		return nil, err
@@ -207,16 +236,7 @@ func (s *Storage[K]) WriteAndRead(ctx context.Context, key K, entry blob.Entry) 
 
 // Delete deletes a blob entry by key.
 func (s *Storage[K]) Delete(ctx context.Context, key K) error {
-	v, ok := s.currentEntry(ctx, key)
-	err := s.index.Delete(ctx, key)
-
-	if ok && err == nil {
-		if !s.markDead(v.Version) {
-			_ = os.Remove(s.pathForVersion(v.Version))
-		}
-	}
-
-	return err
+	return s.index.Delete(ctx, key)
 }
 
 // Close dumps the in-memory index and stops background jobs.
@@ -252,20 +272,20 @@ func (s *Storage[K]) openVersion(version string) (io.ReadCloser, error) {
 	//nolint:gosec // Path is derived from internal versioned storage layout, not external input.
 	f, err := os.Open(s.pathForVersion(version))
 	if err != nil {
-		s.releaseVersion(version)
+		_ = s.releaseVersion(version)
 
 		return nil, err
 	}
 
 	return &trackedFile{
 		File: f,
-		release: func() {
-			s.releaseVersion(version)
+		release: func() error {
+			return s.releaseVersion(version)
 		},
 	}, nil
 }
 
-func (s *Storage[K]) releaseVersion(version string) {
+func (s *Storage[K]) releaseVersion(version string) error {
 	defer s.openedWait.Done()
 
 	s.mu.Lock()
@@ -276,16 +296,22 @@ func (s *Storage[K]) releaseVersion(version string) {
 	s.mu.Unlock()
 
 	if rt == nil {
-		return
+		return nil
 	}
 
 	if rt.refs == 0 && rt.dead {
-		_ = os.Remove(s.pathForVersion(version))
+		err := os.Remove(s.pathForVersion(version))
 
 		s.mu.Lock()
 		delete(s.openedFiles, version)
 		s.mu.Unlock()
+
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (s *Storage[K]) acquireVersion(version string) *openedFile {
@@ -324,6 +350,18 @@ func (s *Storage[K]) markDead(version string) bool {
 	return true
 }
 
+func (s *Storage[K]) removeVersion(version string) error {
+	if s.markDead(version) {
+		return nil
+	}
+
+	if err := os.Remove(s.pathForVersion(version)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Storage[K]) restoreIndex() (err error) {
 	f, err := os.Open(filepath.Join(s.dir, indexFileName))
 	if err != nil {
@@ -351,7 +389,13 @@ func (s *Storage[K]) dumpIndex() (err error) {
 
 	tmpName := tmp.Name()
 	defer func() {
-		if rmErr := os.Remove(tmpName); rmErr != nil && err == nil {
+		if tmp != nil {
+			if clErr := tmp.Close(); clErr != nil && err == nil {
+				err = clErr
+			}
+		}
+
+		if rmErr := os.Remove(tmpName); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) && err == nil {
 			err = rmErr
 		}
 	}()
@@ -364,18 +408,22 @@ func (s *Storage[K]) dumpIndex() (err error) {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	tmp = nil
 
 	return os.Rename(tmpName, filepath.Join(s.dir, indexFileName))
 }
 
 func (s *Storage[K]) pathForVersion(version string) string {
 	path := s.dataDir
-	if len(version) >= 2 {
-		path = filepath.Join(path, version[:2])
-	}
 
-	if len(version) >= 4 {
-		path = filepath.Join(path, version[2:4])
+	if s.split != nil {
+		for _, segment := range s.split(version) {
+			if segment == "" {
+				continue
+			}
+
+			path = filepath.Join(path, segment)
+		}
 	}
 
 	return filepath.Join(path, version+fileExt)
@@ -394,16 +442,17 @@ type trackedFile struct {
 	*os.File
 
 	once    sync.Once
-	release func()
+	release func() error
+	relErr  error
 }
 
 func (t *trackedFile) Close() error {
 	err := t.File.Close()
 	t.once.Do(func() {
 		if t.release != nil {
-			t.release()
+			t.relErr = t.release()
 		}
 	})
 
-	return err
+	return errors.Join(err, t.relErr)
 }

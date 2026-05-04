@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func backendsOf[V any](options ...func(*Config)) []interface {
+func backendsOf[V any](options ...func(*Policy)) []interface {
 	ReadWriterOf[V]
 	Len() int
 } {
@@ -24,7 +24,11 @@ func backendsOf[V any](options ...func(*Config)) []interface {
 		ReadWriterOf[V]
 		Len() int
 	}{
-		NewShardedMapOf[V](options...),
+		NewShardedMapOf[V](func(cfg *ConfigOf[V]) {
+			for _, option := range options {
+				option(&cfg.Policy)
+			}
+		}),
 	}
 }
 
@@ -40,10 +44,10 @@ type evictInterfaceOf[V any] interface {
 }
 
 func Test_evictHeapInuse(t *testing.T) {
-	for _, be := range backendsOf[int](Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsOf[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1 // Setting heap threshold to 1B to force eviction.
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceOf[int])
 
 		require.True(t, ok)
@@ -86,10 +90,10 @@ func Test_evictHeapInuse(t *testing.T) {
 }
 
 func Test_evictHeapInuse_disabled(t *testing.T) {
-	for _, be := range backendsOf[int](Config{
-		HeapInUseSoftLimit: 0, // Setting heap threshold to 0 to disable eviction.
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsOf[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 0 // Setting heap threshold to 0 to disable eviction.
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceOf[int])
 
 		require.True(t, ok)
@@ -109,10 +113,10 @@ func Test_evictHeapInuse_disabled(t *testing.T) {
 }
 
 func Test_evictHeapInuse_skipped(t *testing.T) {
-	for _, be := range backendsOf[int](Config{
-		HeapInUseSoftLimit: 1e10, // Setting heap threshold to big value to skip eviction.
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsOf[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1e10 // Setting heap threshold to big value to skip eviction.
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceOf[int])
 
 		require.True(t, ok)
@@ -132,9 +136,9 @@ func Test_evictHeapInuse_skipped(t *testing.T) {
 }
 
 func Test_evictHeapInuse_concurrency(t *testing.T) {
-	for _, be := range backendsOf[int](Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B value to force eviction.
-	}.Use) {
+	for _, be := range backendsOf[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1 // Setting heap threshold to 1B value to force eviction.
+	}) {
 		m, ok := be.(evictInterfaceOf[int])
 
 		require.True(t, ok)
@@ -163,10 +167,10 @@ func Test_evictHeapInuse_concurrency(t *testing.T) {
 }
 
 func Test_evictHeapInuse_noTTL(t *testing.T) {
-	for _, be := range backendsOf[int](Config{
-		HeapInUseSoftLimit: 1, // Setting heap threshold to 1B to force eviction.
-		ExpirationJitter:   -1,
-	}.Use) {
+	for _, be := range backendsOf[int](func(cfg *Policy) {
+		cfg.HeapInUseSoftLimit = 1 // Setting heap threshold to 1B to force eviction.
+		cfg.ExpirationJitter = -1
+	}) {
 		m, ok := be.(evictInterfaceOf[int])
 
 		require.True(t, ok)
@@ -209,7 +213,7 @@ func Test_evictHeapInuse_noTTL(t *testing.T) {
 }
 
 func Test_generic_LFU_eviction(t *testing.T) {
-	for _, c := range backendsOf[int](func(cfg *Config) {
+	for _, c := range backendsOf[int](func(cfg *Policy) {
 		cfg.EvictionStrategy = EvictLeastFrequentlyUsed
 		cfg.EvictFraction = 0.5
 		cfg.CountSoftLimit = 100
@@ -268,7 +272,7 @@ func Test_generic_LFU_eviction(t *testing.T) {
 }
 
 func Test_generic_LRU_eviction(t *testing.T) {
-	for _, c := range backendsOf[int](func(cfg *Config) {
+	for _, c := range backendsOf[int](func(cfg *Policy) {
 		cfg.EvictionStrategy = EvictLeastRecentlyUsed
 		cfg.EvictFraction = 0.5
 		cfg.CountSoftLimit = 100

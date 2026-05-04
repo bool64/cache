@@ -19,20 +19,20 @@ import (
 func TestFailoverOf_blobEntry_returnsStoredEntryForOneShotSource(t *testing.T) {
 	dir := t.TempDir()
 
-	st, err := filecache.NewStorage(dir)
+	st, err := filecache.NewStorage[string](dir)
 	require.NoError(t, err)
 
 	defer func() {
 		require.NoError(t, st.Close())
 	}()
 
-	f := cache.NewFailoverOf[blob.Entry](func(cfg *cache.FailoverConfigOf[blob.Entry]) {
+	f := cache.NewFailoverBy[string, blob.Entry](func(cfg *cache.FailoverConfigBy[string, blob.Entry]) {
 		cfg.Backend = st
 	})
 
 	ctx := context.Background()
 
-	entry, err := f.Get(ctx, []byte("photo:1"), func(ctx context.Context) (blob.Entry, error) {
+	entry, err := f.Get(ctx, "photo:1", func(ctx context.Context) (blob.Entry, error) {
 		return blob.FromReader(bytes.NewBufferString("hello"), blob.Meta{Name: "photo.txt"}), nil
 	})
 	require.NoError(t, err)

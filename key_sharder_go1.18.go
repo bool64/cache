@@ -10,7 +10,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-func resolveShardFunc[K comparable](cfg ConfigBy[K]) func(K) uint64 {
+func resolveShardFunc[K comparable, V any](cfg ConfigBy[K, V]) func(K) uint64 {
 	if cfg.ShardFunc != nil {
 		return cfg.ShardFunc
 	}

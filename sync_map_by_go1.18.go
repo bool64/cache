@@ -25,7 +25,8 @@ type SyncMapBy[K comparable, V any] struct {
 type syncMapBy[K comparable, V any] struct {
 	data sync.Map
 
-	t *TraitBy[K, V]
+	onDelete func(K, V)
+	t        *TraitBy[K, V]
 }
 
 type syncMapEvictEntryBy[K comparable] struct {
@@ -34,16 +35,18 @@ type syncMapEvictEntryBy[K comparable] struct {
 }
 
 // NewSyncMapBy creates an instance of in-memory cache with typed keys and optional configuration.
-func NewSyncMapBy[K comparable, V any](options ...func(cfg *Config)) *SyncMapBy[K, V] {
+func NewSyncMapBy[K comparable, V any](options ...func(cfg *ConfigBy[K, V])) *SyncMapBy[K, V] {
 	c := &syncMapBy[K, V]{}
 	C := &SyncMapBy[K, V]{
 		syncMapBy: c,
 	}
 
-	cfg := Config{}
+	cfg := ConfigBy[K, V]{}
 	for _, option := range options {
 		option(&cfg)
 	}
+
+	c.onDelete = cfg.OnDeleteBy
 
 	evict := c.evictMostExpired
 
@@ -51,7 +54,7 @@ func NewSyncMapBy[K comparable, V any](options ...func(cfg *Config)) *SyncMapBy[
 		evict = c.evictLeastCounter
 	}
 
-	c.t = NewTraitBy[K, V](cfg, func(t *Trait) {
+	c.t = NewTraitBy[K, V](cfg.Policy, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.Evict = evict
@@ -110,12 +113,13 @@ func (c *syncMapBy[K, V]) Write(ctx context.Context, key K, v V) error {
 
 // Delete removes values by the key.
 func (c *syncMapBy[K, V]) Delete(ctx context.Context, key K) error {
-	_, found := c.data.Load(key)
+	value, found := c.data.Load(key)
 	if !found {
 		return ErrNotFound
 	}
 
 	c.data.Delete(key)
+	c.notifyDeletedEntry(*value.(*TraitEntryBy[K, V]))
 
 	c.t.NotifyDeleted(ctx, key)
 
@@ -145,8 +149,18 @@ func (c *syncMapBy[K, V]) ExpireAll(ctx context.Context) {
 func (c *syncMapBy[K, V]) DeleteAll(ctx context.Context) {
 	start := time.Now()
 	cnt := 0
+	collectRemoved := c.onDelete != nil
 
-	c.data.Range(func(key, _ interface{}) bool {
+	var removed []TraitEntryBy[K, V]
+	if collectRemoved {
+		removed = make([]TraitEntryBy[K, V], 0)
+	}
+
+	c.data.Range(func(key, value interface{}) bool {
+		if collectRemoved {
+			removed = append(removed, *value.(*TraitEntryBy[K, V]))
+		}
+
 		c.data.Delete(key)
 
 		cnt++
@@ -154,20 +168,33 @@ func (c *syncMapBy[K, V]) DeleteAll(ctx context.Context) {
 		return true
 	})
 
+	c.notifyDeletedEntries(removed)
 	c.t.NotifyDeletedAll(ctx, start, cnt)
 }
 
 func (c *syncMapBy[K, V]) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
+	collectRemoved := c.onDelete != nil
+
+	var removed []TraitEntryBy[K, V]
+	if collectRemoved {
+		removed = make([]TraitEntryBy[K, V], 0)
+	}
 
 	c.data.Range(func(key, value interface{}) bool {
 		cacheEntry := value.(*TraitEntryBy[K, V])
 		if cacheEntry.E < beforeTS {
+			if collectRemoved {
+				removed = append(removed, *cacheEntry)
+			}
+
 			c.data.Delete(key)
 		}
 
 		return true
 	})
+
+	c.notifyDeletedEntries(removed)
 }
 
 // Len returns number of elements including expired.
@@ -235,8 +262,28 @@ func (c *syncMapBy[K, V]) evictLeast(evictFraction float64, val func(i *TraitEnt
 	evictItems := int(float64(len(entries)) * evictFraction)
 
 	for i := 0; i < evictItems; i++ {
+		if value, ok := c.data.Load(entries[i].key); ok {
+			c.notifyDeletedEntry(*value.(*TraitEntryBy[K, V]))
+		}
+
 		c.data.Delete(entries[i].key)
 	}
 
 	return evictItems
+}
+
+func (c *syncMapBy[K, V]) notifyDeletedEntries(entries []TraitEntryBy[K, V]) {
+	if c.onDelete == nil {
+		return
+	}
+
+	for _, entry := range entries {
+		c.onDelete(entry.K, entry.V)
+	}
+}
+
+func (c *syncMapBy[K, V]) notifyDeletedEntry(entry TraitEntryBy[K, V]) {
+	if c.onDelete != nil {
+		c.onDelete(entry.K, entry.V)
+	}
 }

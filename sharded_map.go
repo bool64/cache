@@ -37,7 +37,8 @@ type shardedMap struct {
 
 	hashedBuckets [shards]hashedBucket
 
-	t *Trait
+	onDelete func([]byte, interface{})
+	t        *Trait
 }
 
 // NewShardedMap creates an instance of in-memory cache with optional configuration.
@@ -56,13 +57,15 @@ func NewShardedMap(options ...func(cfg *Config)) *ShardedMap {
 		option(&cfg)
 	}
 
+	c.onDelete = cfg.OnDelete
+
 	evict := c.evictMostExpired
 
 	if cfg.EvictionStrategy != EvictMostExpired {
 		evict = c.evictLeastCounter
 	}
 
-	c.t = NewTrait(cfg, func(t *Trait) {
+	c.t = NewTrait(cfg.Policy, func(t *Trait) {
 		t.DeleteExpired = c.deleteExpired
 		t.Len = c.Len
 		t.Evict = evict
@@ -190,7 +193,7 @@ func (c *shardedMap) ExpireAll(ctx context.Context) {
 func (c *shardedMap) DeleteAll(ctx context.Context) {
 	now := time.Now()
 	cnt := 0
-	collectRemoved := c.t.Config.OnDelete != nil
+	collectRemoved := c.onDelete != nil
 
 	var removed []TraitEntry
 
@@ -220,7 +223,7 @@ func (c *shardedMap) DeleteAll(ctx context.Context) {
 
 func (c *shardedMap) deleteExpired(before time.Time) {
 	beforeTS := ts(before)
-	collectRemoved := c.t.Config.OnDelete != nil
+	collectRemoved := c.onDelete != nil
 
 	var removed []TraitEntry
 
@@ -400,17 +403,17 @@ func (c *shardedMap) evictLeast(evictFraction float64, val func(i *TraitEntry) i
 }
 
 func (c *shardedMap) notifyDeletedEntries(entries []TraitEntry) {
-	if c.t.Config.OnDelete == nil {
+	if c.onDelete == nil {
 		return
 	}
 
 	for _, entry := range entries {
-		c.t.Config.OnDelete(entry.K, entry.V)
+		c.onDelete(entry.K, entry.V)
 	}
 }
 
 func (c *shardedMap) notifyDeletedEntry(entry TraitEntry) {
-	if c.t.Config.OnDelete != nil {
-		c.t.Config.OnDelete(entry.K, entry.V)
+	if c.onDelete != nil {
+		c.onDelete(entry.K, entry.V)
 	}
 }
