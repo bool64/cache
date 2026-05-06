@@ -17,6 +17,8 @@ func ExampleNewInvalidationIndex() {
 	// You can add a resource label to the new cache key (separate label for each resource), so that later,
 	// when resource is changed, invalidation index can be asked to drop cached entries associated
 	// with respective label.
+	//
+	// If a cache key is rebuilt and its dependencies change, call ResetKey before adding a new label set.
 	i := cache.NewInvalidationIndex()
 
 	cache1 := cache.NewShardedMap()
@@ -116,11 +118,11 @@ func TestInvalidationIndex_InvalidateGroups_delete_fails(t *testing.T) {
 
 	ii := cache.NewInvalidationIndex(d)
 
-	ii.AddInvalidationLabels([]byte("one"), "numbers", "len3")
-	ii.AddInvalidationLabels([]byte("two"), "numbers", "len3")
-	ii.AddInvalidationLabels([]byte("three"), "numbers", "len5")
-	ii.AddInvalidationLabels([]byte("four"), "numbers", "len4")
-	ii.AddInvalidationLabels([]byte("five"), "numbers", "len4")
+	ii.AddLabels("default", []byte("one"), "numbers", "len3")
+	ii.AddLabels("default", []byte("two"), "numbers", "len3")
+	ii.AddLabels("default", []byte("three"), "numbers", "len5")
+	ii.AddLabels("default", []byte("four"), "numbers", "len4")
+	ii.AddLabels("default", []byte("five"), "numbers", "len4")
 
 	n, err := ii.InvalidateByLabels(context.Background(), "len3", "len5", "numbers")
 
@@ -140,4 +142,38 @@ func TestInvalidationIndex_InvalidateGroups_delete_fails(t *testing.T) {
 
 	assert.Equal(t, 3, n)
 	assert.NoError(t, err)
+}
+
+func TestInvalidationIndex_ResetKey(t *testing.T) {
+	ctx := context.Background()
+
+	cache1 := cache.NewShardedMap()
+	i := cache.NewInvalidationIndex()
+	i.AddCache("one", cache1)
+
+	assert.NoError(t, cache1.Write(ctx, []byte("keyA"), "A1"))
+	assert.NoError(t, cache1.Write(ctx, []byte("keyB"), "B1"))
+
+	i.AddLabels("one", []byte("keyA"), "A", "B")
+	i.AddLabels("one", []byte("keyB"), "B")
+
+	i.ResetKey("one", []byte("keyA"))
+	i.AddLabels("one", []byte("keyA"), "A")
+
+	n, err := i.InvalidateByLabels(ctx, "B")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	_, err = cache1.Read(ctx, []byte("keyA"))
+	assert.NoError(t, err)
+
+	_, err = cache1.Read(ctx, []byte("keyB"))
+	assert.ErrorIs(t, err, cache.ErrNotFound)
+
+	n, err = i.InvalidateByLabels(ctx, "A")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	_, err = cache1.Read(ctx, []byte("keyA"))
+	assert.ErrorIs(t, err, cache.ErrNotFound)
 }

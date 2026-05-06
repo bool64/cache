@@ -78,6 +78,8 @@ func (i *InvalidationIndex) AddCache(name string, deleter Deleter) {
 }
 
 // AddInvalidationLabels registers invalidation labels to a cache key in default cache.
+//
+// Deprecated: Use AddLabels instead.
 func (i *InvalidationIndex) AddInvalidationLabels(key []byte, labels ...string) {
 	i.AddLabels("default", key, labels...)
 }
@@ -96,6 +98,40 @@ func (i *InvalidationIndex) AddLabels(cacheName string, key []byte, labels ...st
 	ks := string(key)
 	for _, label := range labels {
 		labeledKeys[label] = append(labeledKeys[label], ks)
+	}
+}
+
+// ResetKey removes all invalidation labels attached to a cache key.
+func (i *InvalidationIndex) ResetKey(cacheName string, key []byte) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	labeledKeys := i.labeledKeysByName[cacheName]
+	if labeledKeys == nil {
+		return
+	}
+
+	ks := string(key)
+
+	for label, keys := range labeledKeys {
+		for j := 0; j < len(keys); {
+			if keys[j] != ks {
+				j++
+
+				continue
+			}
+
+			keys[j] = keys[len(keys)-1]
+			keys = keys[:len(keys)-1]
+		}
+
+		if len(keys) == 0 {
+			delete(labeledKeys, label)
+
+			continue
+		}
+
+		labeledKeys[label] = keys
 	}
 }
 

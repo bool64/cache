@@ -289,6 +289,64 @@ a debugging/firefighting tool.
 Deleting of multiple related (labeled) items can be done with 
 [`InvalidationIndex`](https://pkg.go.dev/github.com/bool64/cache#InvalidationIndex).
 
+When a cached value is rebuilt, its dependency set may change. `InvalidationIndex` is additive, so if a cache key
+used to depend on labels `A` and `B`, and after rebuild it only depends on `A`, the old `B` association remains unless
+it is explicitly cleared. This does not make invalidation unsafe, but it can cause false positive invalidation and drop
+cache entries that could have been kept.
+
+The intended rebuild flow is:
+
+1. `ResetKey(cacheName, key)`
+2. rebuild cache value
+3. `AddLabels(...)` with current dependencies only
+
+Example sequence:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant CacheA as Cache entry A
+    participant BuilderA as Builder for A
+    participant B as Dependency B
+    participant C as Dependency C
+    participant Index as InvalidationIndex
+
+    Client->>CacheA: Serve A
+    CacheA-->>Client: miss
+    CacheA->>BuilderA: Build A
+    BuilderA->>Index: ResetKey("A-cache", "A")
+    BuilderA->>B: Read B
+    B-->>BuilderA: B v1
+    BuilderA->>C: Read C
+    C-->>BuilderA: C v1
+    BuilderA->>Index: AddLabels("A-cache", "A", "B", "C")
+    BuilderA-->>CacheA: Store A(B v1, C v1)
+    CacheA-->>Client: A response
+
+    Client->>CacheA: Serve A again
+    CacheA-->>Client: hit
+
+    B->>Index: B updated, invalidate label "B"
+    Index-->>CacheA: Delete A from cache
+
+    Client->>CacheA: Serve A after B update
+    CacheA-->>Client: miss
+    CacheA->>BuilderA: Rebuild A
+    BuilderA->>Index: ResetKey("A-cache", "A")
+    BuilderA->>B: Read B
+    B-->>BuilderA: B v2
+    BuilderA->>C: Read C
+    C-->>BuilderA: C v1
+    BuilderA->>Index: AddLabels("A-cache", "A", "B", "C")
+    BuilderA-->>CacheA: Store A(B v2, C v1)
+    CacheA-->>Client: A response
+
+    Client->>CacheA: Serve A again
+    CacheA-->>Client: hit
+```
+
+`ResetKey` improves invalidation precision. Without it, stale label rows can survive and cause extra rebuilds later.
+
 [`Len`](https://pkg.go.dev/github.com/bool64/cache#ShardedMap.Len) returns currently available number of entries (
 including expired).
 

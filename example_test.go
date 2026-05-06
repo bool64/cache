@@ -73,13 +73,13 @@ func ExampleInvalidationIndex_InvalidateByLabels() {
 
 	// Any cache key can be accompanied by invalidation labels.
 	_ = c.Write(ctx, []byte("my-foo"), "foo")
-	c.AddInvalidationLabels([]byte("my-foo"), "my", "f**")
+	c.AddLabels("default", []byte("my-foo"), "my", "f**")
 
 	_ = c.Write(ctx, []byte("my-bar"), "bar")
-	c.AddInvalidationLabels([]byte("my-bar"), "my", "b**")
+	c.AddLabels("default", []byte("my-bar"), "my", "b**")
 
 	_ = c.Write(ctx, []byte("my-baz"), "baz")
-	c.AddInvalidationLabels([]byte("my-baz"), "my", "b**")
+	c.AddLabels("default", []byte("my-baz"), "my", "b**")
 
 	n, _ := c.InvalidateByLabels(ctx, "b**")
 
