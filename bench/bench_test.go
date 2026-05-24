@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/bool64/cache"
 	"github.com/bool64/cache/bench"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,14 +23,33 @@ func TestConcurrently(t *testing.T) {
 }
 
 func BenchmarkConcurrent(b *testing.B) {
-	all := make([]bench.Runner, 0, len(bench.ReadWriters)+len(bench.Failovers))
-
-	all = append(all, bench.ReadWriters...)
-	all = append(all, bench.Failovers...)
+	//all := make([]bench.Runner, 0, len(bench.ReadWriters)+len(bench.Failovers))
+	//
+	//all = append(all, bench.ReadWriters...)
+	//all = append(all, bench.Failovers...)
 
 	bench.Concurrently(b, []bench.Scenario{
-		{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Failovers},                     // Fastest single-threaded mode.
-		{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: bench.Failovers}, // Fastest mode.
-		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: all},            // Slowest mode.
+		//{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Failovers},                      // Fastest single-threaded mode.
+		//{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: bench.Failovers},  // Fastest mode.
+		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: bench.Failovers}, // Slowest mode.
+	})
+}
+
+func BenchmarkConcurrentSyncMap(b *testing.B) {
+	//all := make([]bench.Runner, 0, len(bench.ReadWriters)+len(bench.Failovers))
+	//
+	//all = append(all, bench.ReadWriters...)
+	//all = append(all, bench.Failovers...)
+
+	bench.Concurrently(b, []bench.Scenario{
+		//{Cardinality: 1e4, NumRoutines: 1, WritePercent: 0, Runners: bench.Failovers},                      // Fastest single-threaded mode.
+		//{Cardinality: 1e4, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 0, Runners: bench.Failovers},  // Fastest mode.
+		{Cardinality: 1e6, NumRoutines: runtime.GOMAXPROCS(0), WritePercent: 10, Runners: []bench.Runner{
+			bench.FailoverRunner{F: func() cache.ReadWriter {
+				return cache.NewSyncMap(func(cfg *cache.Config) {
+					cfg.TimeToLive = cache.UnlimitedTTL
+				})
+			}},
+		}}, // Slowest mode.
 	})
 }
