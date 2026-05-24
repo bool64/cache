@@ -183,13 +183,19 @@ func (r FailoverByRunner) Run(b *testing.B, cnt int, writeEvery int) {
 func init() {
 	Failovers = append(Failovers,
 		FailoverByRunner{F: func() cache.ReadWriterBy[string, SmallCachedValue] {
-			return cache.NewShardedMapBy[string, SmallCachedValue]()
+			return cache.NewShardedMapBy[string, SmallCachedValue](func(cfg *cache.ConfigBy[string, SmallCachedValue]) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
 		}},
 		FailoverByRunner{F: func() cache.ReadWriterBy[string, SmallCachedValue] {
-			return cache.NewSyncMapBy[string, SmallCachedValue]()
+			return cache.NewSyncMapBy[string, SmallCachedValue](func(cfg *cache.ConfigBy[string, SmallCachedValue]) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
 		}},
 		FailoverOf{F: func() cache.ReadWriterOf[SmallCachedValue] {
-			return cache.NewShardedMapOf[SmallCachedValue]()
+			return cache.NewShardedMapOf[SmallCachedValue](func(cfg *cache.ConfigOf[SmallCachedValue]) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
 		}},
 	)
 

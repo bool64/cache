@@ -22,15 +22,23 @@ type Runner interface {
 var (
 	Failovers = []Runner{
 		FailoverRunner{F: func() cache.ReadWriter {
-			return cache.NewShardedMap()
+			return cache.NewShardedMap(func(cfg *cache.Config) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
 		}},
 		FailoverRunner{F: func() cache.ReadWriter {
-			return cache.NewSyncMap()
+			return cache.NewSyncMap(func(cfg *cache.Config) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
+		}},
+		FailoverRunner{F: func() cache.ReadWriter {
+			return NewThinShardedMap()
 		}},
 	}
 
 	Baseline = []Runner{
 		SyncMapBaseline{},
+		RawShardedStringMapBaseline{},
 		ShardedMapBaseline{},
 		&MutexMap{},
 		&RWMutexMap{},
@@ -48,6 +56,9 @@ var (
 		}},
 		ReadWriterRunner{F: func() cache.ReadWriter {
 			return cache.NewSyncMap()
+		}},
+		ReadWriterRunner{Name: "ThinShardedMap", F: func() cache.ReadWriter {
+			return NewThinShardedMap()
 		}},
 	}
 )

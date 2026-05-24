@@ -8,7 +8,9 @@ import "github.com/bool64/cache"
 func init() {
 	Failovers = append(Failovers,
 		FailoverOf{F: func() cache.ReadWriterOf[SmallCachedValue] {
-			return cache.NewShardedMapOf[SmallCachedValue]()
+			return cache.NewShardedMapOf[SmallCachedValue](func(cfg *cache.ConfigOf[SmallCachedValue]) {
+				cfg.TimeToLive = cache.UnlimitedTTL
+			})
 		}},
 	)
 
@@ -19,6 +21,8 @@ func init() {
 	)
 
 	Baseline = append(Baseline,
+		SyncMapByBaseline{},
+		ShardedMapByBaseline{},
 		ShardedMapOfBaseline{},
 	)
 }

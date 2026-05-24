@@ -1,10 +1,11 @@
 package benchmark_test
 
 import (
-	"benchmark"
 	"encoding"
 	"runtime"
 	"testing"
+
+	"benchmark"
 
 	"github.com/bool64/cache"
 	"github.com/bool64/cache/bench"
@@ -25,6 +26,8 @@ func BenchmarkConcurrentBaseline(b *testing.B) {
 	runners = append(runners,
 		benchmark.RistrettoBaseline{},
 		benchmark.XsyncBaseline{},
+		benchmark.DLHTBaseline{},
+		benchmark.OtterBaseline{},
 		benchmark.PatrickmnBaseline{},
 		benchmark.BigcacheBaseline{Encoding: enc},
 		benchmark.FreecacheBaseline{Encoding: enc},
