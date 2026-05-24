@@ -103,6 +103,21 @@ func NewFailoverBy[K comparable, V any](options ...func(cfg *FailoverConfigBy[K,
 	f.wr, _ = f.backend.(WriteAndReaderBy[K, V])
 
 	if cfg.FailedUpdateTTL > -1 {
+		shardFunc := cfg.BackendConfig.ShardFunc
+		if shardFunc == nil {
+			shardFunc = func() func(K) uint64 {
+				defer func() {
+					_ = recover()
+				}()
+
+				return resolveShardFunc(ConfigBy[K, error]{})
+			}()
+		}
+
+		if shardFunc == nil {
+			shardFunc = func(K) uint64 { return 0 }
+		}
+
 		f.Errors = NewShardedMapBy[K, error](ConfigBy[K, error]{
 			Policy: Policy{
 				Name:       "err_" + cfg.Name,
@@ -113,7 +128,7 @@ func NewFailoverBy[K comparable, V any](options ...func(cfg *FailoverConfigBy[K,
 				DeleteExpiredAfter:       time.Minute,
 				DeleteExpiredJobInterval: time.Minute,
 			},
-			ShardFunc: cfg.BackendConfig.ShardFunc,
+			ShardFunc: shardFunc,
 		}.Use)
 	}
 

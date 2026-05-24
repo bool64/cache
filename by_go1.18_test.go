@@ -603,6 +603,45 @@ func TestFailoverBy_Get_FailedUpdateTTL(t *testing.T) {
 	}
 }
 
+func TestFailoverBy_CustomBackend_AllowsErrorsCacheWithoutSharder(t *testing.T) {
+	type key struct {
+		TenantID int
+		Slug     string
+	}
+
+	ctx := context.Background()
+	buildCalls := 0
+
+	var c *cache.FailoverBy[key, string]
+
+	assert.NotPanics(t, func() {
+		c = cache.NewFailoverBy[key, string](func(cfg *cache.FailoverConfigBy[key, string]) {
+			cfg.Backend = cache.NewSyncMapBy[key, string]()
+		})
+	})
+
+	k := key{TenantID: 7, Slug: "alpha"}
+
+	val, err := c.Get(ctx, k, func(ctx context.Context) (string, error) {
+		buildCalls++
+
+		return "", assert.AnError
+	})
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Empty(t, val)
+	assert.Equal(t, 1, buildCalls)
+	require.NotNil(t, c.Errors)
+
+	val, err = c.Get(ctx, k, func(ctx context.Context) (string, error) {
+		buildCalls++
+
+		return "unexpected", nil
+	})
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Empty(t, val)
+	assert.Equal(t, 1, buildCalls)
+}
+
 func TestFailoverBy_Get_BackgroundUpdate(t *testing.T) {
 	for _, be := range backendsBy[string](func(config *cache.Policy) {
 		config.TimeToLive = time.Millisecond
