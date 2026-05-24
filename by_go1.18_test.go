@@ -613,6 +613,7 @@ func TestFailoverBy_CustomBackend_AllowsErrorsCacheWithoutSharder(t *testing.T) 
 	buildCalls := 0
 
 	var c *cache.FailoverBy[key, string]
+	
 	assert.NotPanics(t, func() {
 		c = cache.NewFailoverBy[key, string](func(cfg *cache.FailoverConfigBy[key, string]) {
 			cfg.Backend = cache.NewSyncMapBy[key, string]()
