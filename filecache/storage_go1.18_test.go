@@ -184,3 +184,104 @@ func TestStorage_rewriteUpdatesStoredBytes(t *testing.T) {
 	require.NoError(t, s.Write(ctx, "same", blob.FromReader(bytes.NewBufferString("12"), blob.Meta{})))
 	assert.Equal(t, int64(2), atomic.LoadInt64(&s.bytes))
 }
+
+func TestStorage_walkReturnsStoredEntries(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := cache.WithTTL(context.Background(), time.Minute, false)
+	require.NoError(t, s.Write(ctx, "k1", blob.FromReader(bytes.NewBufferString("value"), blob.Meta{
+		Name: "walk.txt",
+	})))
+
+	var seen cache.EntryBy[string, blob.Entry]
+
+	n, err := s.Walk(func(entry cache.EntryBy[string, blob.Entry]) error {
+		seen = entry
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.NotNil(t, seen)
+
+	assert.Equal(t, "k1", seen.Key())
+	assert.Equal(t, "walk.txt", seen.Value().Meta().Name)
+	assert.WithinDuration(t, time.Now().Add(time.Minute), seen.ExpireAt(), 5*time.Second)
+
+	rc, err := seen.Value().Open()
+	require.NoError(t, err)
+	defer rc.Close()
+
+	b, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, "value", string(b))
+}
+
+func TestStorage_flushPersistsIndex(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "k1", blob.FromReader(bytes.NewBufferString("value"), blob.Meta{
+		Name: "flush.txt",
+	})))
+	require.NoError(t, s.Flush())
+	require.NoError(t, s.Close())
+
+	reopened, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, reopened.Close())
+	}()
+
+	entry, err := reopened.Read(ctx, "k1")
+	require.NoError(t, err)
+	assert.Equal(t, "flush.txt", entry.Meta().Name)
+}
+
+func TestStorage_closeRetriesAfterFlushFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "k1", blob.FromReader(bytes.NewBufferString("value"), blob.Meta{})))
+
+	origDir := s.dir
+	s.dir = filepath.Join(dir, "missing")
+
+	err = s.Close()
+	require.Error(t, err)
+
+	s.dir = origDir
+	require.NoError(t, s.Close())
+
+	reopened, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, reopened.Close())
+	}()
+
+	entry, err := reopened.Read(ctx, "k1")
+	require.NoError(t, err)
+
+	rc, err := entry.Open()
+	require.NoError(t, err)
+	defer rc.Close()
+
+	b, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, "value", string(b))
+}

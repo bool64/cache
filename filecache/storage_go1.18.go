@@ -33,6 +33,7 @@ const (
 var (
 	_     cache.ReadWriterBy[string, blob.Entry]     = (*Storage[string])(nil)
 	_     cache.WriteAndReaderBy[string, blob.Entry] = (*Storage[string])(nil)
+	_     cache.WalkerBy[string, blob.Entry]         = (*Storage[string])(nil)
 	bgCtx                                            = context.Background()
 )
 
@@ -47,11 +48,12 @@ type Storage[K comparable] struct {
 	limit uint64
 	bytes int64
 
+	closeMu     sync.Mutex
+	closed      bool
 	mu          sync.Mutex
 	openedFiles map[string]*openedFile
 
 	openedWait sync.WaitGroup
-	closeOnce  sync.Once
 }
 
 type storedEntry struct {
@@ -270,17 +272,51 @@ func (s *Storage[K]) Delete(ctx context.Context, key K) error {
 	return s.index.Delete(ctx, key)
 }
 
+// Walk traverses all entries in the storage, applying the provided callback function to each entry.
+// Returns the number of entries processed and any error encountered during the traversal.
+func (s *Storage[K]) Walk(cb func(entry cache.EntryBy[K, blob.Entry]) error) (int, error) {
+	return s.index.Walk(func(e cache.EntryBy[K, storedEntry]) error {
+		v := e.Value()
+
+		b := blobInstance{
+			meta: v.Meta,
+			open: func() (io.ReadCloser, error) {
+				return s.openVersion(v.Version)
+			},
+		}
+
+		t := cache.TraitEntryBy[K, blob.Entry]{
+			K: e.Key(),
+			V: &b,
+			E: e.ExpireAt().UnixNano(),
+		}
+
+		return cb(t)
+	})
+}
+
 // Close dumps the in-memory index and stops background jobs.
 func (s *Storage[K]) Close() error {
-	var err error
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
 
-	s.closeOnce.Do(func() {
-		err = s.dumpIndex()
-		s.index = nil
-		s.openedWait.Wait()
-	})
+		return nil
+	}
 
-	return err
+	if err := s.flush(); err != nil {
+		s.closeMu.Unlock()
+
+		return err
+	}
+
+	s.index = nil
+	s.closed = true
+	s.closeMu.Unlock()
+
+	s.openedWait.Wait()
+
+	return nil
 }
 
 func (s *Storage[K]) currentEntry(ctx context.Context, key K) (storedEntry, bool) {
@@ -462,7 +498,19 @@ func (s *Storage[K]) recountStoredBytes() {
 	atomic.StoreInt64(&s.bytes, total)
 }
 
-func (s *Storage[K]) dumpIndex() (err error) {
+// Flush writes the in-memory index to persistent storage, ensuring data consistency and integrity.
+func (s *Storage[K]) Flush() (err error) {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+
+	return s.flush()
+}
+
+func (s *Storage[K]) flush() (err error) {
 	tmp, err := os.CreateTemp(s.dir, indexFileName+".tmp-*")
 	if err != nil {
 		return err
