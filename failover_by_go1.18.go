@@ -65,9 +65,10 @@ type FailoverBy[K comparable, V any] struct {
 	backend ReadWriterBy[K, V]
 	wr      WriteAndReaderBy[K, V]
 
-	lock     sync.Mutex
-	keyLocks map[K]*klBy[V]
-	config   FailoverConfigBy[K, V]
+	// keyLocks is a map[K]*klBy[V], used to prevent update concurrency per key.
+	keyLocks sync.Map
+
+	config FailoverConfigBy[K, V]
 	logTrait
 	stat StatsTracker
 }
@@ -132,8 +133,6 @@ func NewFailoverBy[K comparable, V any](options ...func(cfg *FailoverConfigBy[K,
 		}.Use)
 	}
 
-	f.keyLocks = make(map[K]*klBy[V])
-
 	return f
 }
 
@@ -154,24 +153,29 @@ func (f *FailoverBy[K, V]) Get(
 		}
 	}
 
-	f.lock.Lock()
-	var keyLock *klBy[V]
+	var (
+		keyLock       *klBy[V]
+		alreadyLocked bool
+	)
 
-	alreadyLocked := false
-
-	keyLock, alreadyLocked = f.keyLocks[key]
-	if !alreadyLocked {
+	if l, ok := f.keyLocks.Load(key); ok {
+		keyLock = l.(*klBy[V])
+		alreadyLocked = true
+	} else {
 		keyLock = &klBy[V]{lock: make(chan struct{})}
-		f.keyLocks[key] = keyLock
+
+		l, loaded := f.keyLocks.LoadOrStore(key, keyLock)
+		if loaded {
+			keyLock = l.(*klBy[V])
+			alreadyLocked = true
+		}
 	}
-	f.lock.Unlock()
 
 	defer func() {
 		if !alreadyLocked {
-			f.lock.Lock()
-			delete(f.keyLocks, key)
-			close(keyLock.lock)
-			f.lock.Unlock()
+			if _, loaded := f.keyLocks.LoadAndDelete(key); loaded {
+				close(keyLock.lock)
+			}
 		}
 	}()
 
@@ -230,10 +234,9 @@ func (f *FailoverBy[K, V]) Get(
 	alreadyLocked = true
 	runBuild := func() {
 		defer func() {
-			f.lock.Lock()
-			delete(f.keyLocks, key)
-			close(keyLock.lock)
-			f.lock.Unlock()
+			if _, loaded := f.keyLocks.LoadAndDelete(key); loaded {
+				close(keyLock.lock)
+			}
 		}()
 
 		keyLock.val, keyLock.err = f.doBuild(ctx, key, val, !errors.Is(err, ErrNotFound), buildFunc)

@@ -77,9 +77,10 @@ type Failover struct {
 	backend ReadWriter
 	wr      WriteAndReader
 
-	lock     sync.Mutex     // Securing keyLocks
-	keyLocks map[string]*kl // Preventing update concurrency per key
-	config   FailoverConfig
+	// keyLocks is a map of [string, *kl], used to prevent update concurrency per key.
+	keyLocks sync.Map
+
+	config FailoverConfig
 
 	logTrait
 
@@ -135,8 +136,6 @@ func NewFailover(options ...func(cfg *FailoverConfig)) *Failover {
 		}.Use)
 	}
 
-	f.keyLocks = make(map[string]*kl)
-
 	return f
 }
 
@@ -160,25 +159,33 @@ func (f *Failover) Get(
 	}
 
 	// Locking key for update or finding active lock.
-	f.lock.Lock()
-	var keyLock *kl
+	lockKey := string(key)
 
-	alreadyLocked := false
+	var (
+		keyLock       *kl
+		alreadyLocked bool
+	)
 
-	keyLock, alreadyLocked = f.keyLocks[string(key)]
-	if !alreadyLocked {
+	if l, ok := f.keyLocks.Load(lockKey); ok {
+		keyLock = l.(*kl)
+		alreadyLocked = true
+	} else {
 		keyLock = &kl{lock: make(chan struct{})}
-		f.keyLocks[string(key)] = keyLock
+
+		l, loaded := f.keyLocks.LoadOrStore(lockKey, keyLock)
+		if loaded {
+			keyLock = l.(*kl)
+			alreadyLocked = true
+		}
 	}
-	f.lock.Unlock()
 
 	// Releasing the lock.
 	defer func() {
 		if !alreadyLocked {
-			f.lock.Lock()
-			delete(f.keyLocks, string(key))
-			close(keyLock.lock)
-			f.lock.Unlock()
+			_, loaded := f.keyLocks.LoadAndDelete(lockKey)
+			if loaded {
+				close(keyLock.lock)
+			}
 		}
 	}()
 
@@ -252,10 +259,9 @@ func (f *Failover) Get(
 	// Spawning cache update in background.
 	go func() {
 		defer func() {
-			f.lock.Lock()
-			delete(f.keyLocks, string(key))
-			close(keyLock.lock)
-			f.lock.Unlock()
+			if _, loaded := f.keyLocks.LoadAndDelete(lockKey); loaded {
+				close(keyLock.lock)
+			}
 		}()
 
 		keyLock.val, keyLock.err = f.doBuild(ctx, key, value, buildFunc)

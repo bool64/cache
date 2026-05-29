@@ -70,9 +70,10 @@ type FailoverOf[V any] struct {
 	backend ReadWriterOf[V]
 	wr      WriteAndReaderOf[V]
 
-	lock     sync.Mutex          // Securing keyLocks
-	keyLocks map[string]*klOf[V] // Preventing update concurrency per key
-	config   FailoverConfigOf[V]
+	// keyLocks is a map[string]*klOf[V], used to prevent update concurrency per key.
+	keyLocks sync.Map
+
+	config FailoverConfigOf[V]
 	logTrait
 	stat StatsTracker
 }
@@ -125,8 +126,6 @@ func NewFailoverOf[V any](options ...func(cfg *FailoverConfigOf[V])) *FailoverOf
 		}.Use)
 	}
 
-	f.keyLocks = make(map[string]*klOf[V])
-
 	return f
 }
 
@@ -150,25 +149,32 @@ func (f *FailoverOf[V]) Get(
 	}
 
 	// Locking key for update or finding active lock.
-	f.lock.Lock()
-	var keyLock *klOf[V]
+	lockKey := string(key)
 
-	alreadyLocked := false
+	var (
+		keyLock       *klOf[V]
+		alreadyLocked bool
+	)
 
-	keyLock, alreadyLocked = f.keyLocks[string(key)]
-	if !alreadyLocked {
+	if l, ok := f.keyLocks.Load(lockKey); ok {
+		keyLock = l.(*klOf[V])
+		alreadyLocked = true
+	} else {
 		keyLock = &klOf[V]{lock: make(chan struct{})}
-		f.keyLocks[string(key)] = keyLock
+
+		l, loaded := f.keyLocks.LoadOrStore(lockKey, keyLock)
+		if loaded {
+			keyLock = l.(*klOf[V])
+			alreadyLocked = true
+		}
 	}
-	f.lock.Unlock()
 
 	// Releasing the lock.
 	defer func() {
 		if !alreadyLocked {
-			f.lock.Lock()
-			delete(f.keyLocks, string(key))
-			close(keyLock.lock)
-			f.lock.Unlock()
+			if _, loaded := f.keyLocks.LoadAndDelete(lockKey); loaded {
+				close(keyLock.lock)
+			}
 		}
 	}()
 
@@ -238,10 +244,9 @@ func (f *FailoverOf[V]) Get(
 	// Spawning cache update in background.
 	go func() {
 		defer func() {
-			f.lock.Lock()
-			delete(f.keyLocks, string(key))
-			close(keyLock.lock)
-			f.lock.Unlock()
+			if _, loaded := f.keyLocks.LoadAndDelete(lockKey); loaded {
+				close(keyLock.lock)
+			}
 		}()
 
 		keyLock.val, keyLock.err = f.doBuild(ctx, key, val, buildFunc)
