@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -284,4 +285,197 @@ func TestStorage_closeRetriesAfterFlushFailure(t *testing.T) {
 	b, err := io.ReadAll(rc)
 	require.NoError(t, err)
 	assert.Equal(t, "value", string(b))
+}
+
+func TestStorage_repairDryRunReportsInvalidEntriesAndOrphans(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "valid", blob.FromReader(bytes.NewBufferString("value"), blob.Meta{})))
+	require.NoError(t, s.Write(ctx, "broken", blob.FromReader(bytes.NewBufferString("missing"), blob.Meta{})))
+
+	broken, ok := s.currentEntry(ctx, "broken")
+	require.True(t, ok)
+	require.NoError(t, os.Remove(s.pathForVersion(broken.Version)))
+
+	orphanPath := filepath.Join(dir, dataDirName, "orphan", "ghost"+fileExt)
+	require.NoError(t, os.MkdirAll(filepath.Dir(orphanPath), 0o750))
+	require.NoError(t, os.WriteFile(orphanPath, []byte("orphan"), 0o600))
+
+	var (
+		invalidKeys  []string
+		invalidPaths []string
+		orphanPaths  []string
+	)
+
+	result := s.Repair(func(cfg *RepairConfig[string]) {
+		cfg.DryRun = true
+		cfg.OnInvalidEntry = func(key string, path string, removeErr error) {
+			require.NoError(t, removeErr)
+
+			invalidKeys = append(invalidKeys, key)
+			invalidPaths = append(invalidPaths, path)
+		}
+		cfg.OnOrphanFile = func(path string, removeErr error) {
+			require.NoError(t, removeErr)
+
+			orphanPaths = append(orphanPaths, path)
+		}
+	})
+
+	assert.Equal(t, RepairResult{
+		InvalidEntries: 1,
+		OrphanFiles:    1,
+	}, result)
+	assert.Equal(t, []string{"broken"}, invalidKeys)
+	assert.Equal(t, []string{s.pathForVersion(broken.Version)}, invalidPaths)
+	assert.Equal(t, []string{orphanPath}, orphanPaths)
+
+	_, err = s.Read(ctx, "broken")
+	require.NoError(t, err)
+
+	_, err = os.Stat(orphanPath)
+	require.NoError(t, err)
+}
+
+func TestStorage_repairRemovesInvalidEntriesAndOrphans(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "broken", blob.FromReader(bytes.NewBufferString("missing"), blob.Meta{})))
+
+	broken, ok := s.currentEntry(ctx, "broken")
+	require.True(t, ok)
+	require.NoError(t, os.Remove(s.pathForVersion(broken.Version)))
+
+	orphanPath := filepath.Join(dir, dataDirName, "orphan", "ghost"+fileExt)
+	require.NoError(t, os.MkdirAll(filepath.Dir(orphanPath), 0o750))
+	require.NoError(t, os.WriteFile(orphanPath, []byte("orphan"), 0o600))
+
+	var (
+		invalidKeys []string
+		orphanPaths []string
+	)
+
+	result := s.Repair(func(cfg *RepairConfig[string]) {
+		cfg.OnInvalidEntry = func(key string, path string, removeErr error) {
+			require.NoError(t, removeErr)
+
+			invalidKeys = append(invalidKeys, key)
+		}
+		cfg.OnOrphanFile = func(path string, removeErr error) {
+			require.NoError(t, removeErr)
+
+			orphanPaths = append(orphanPaths, path)
+		}
+	})
+
+	assert.Equal(t, RepairResult{
+		InvalidEntries: 1,
+		OrphanFiles:    1,
+		RemovedEntries: 1,
+		RemovedFiles:   1,
+	}, result)
+	assert.Equal(t, []string{"broken"}, invalidKeys)
+	assert.Equal(t, []string{orphanPath}, orphanPaths)
+
+	_, err = s.Read(ctx, "broken")
+	assert.ErrorIs(t, err, cache.ErrNotFound)
+
+	_, err = os.Stat(orphanPath)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestStorage_repairIgnoresPendingDeadFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	defer func() {
+		require.NoError(t, s.Close())
+	}()
+
+	ctx := context.Background()
+	require.NoError(t, s.Write(ctx, "same", blob.FromReader(bytes.NewBufferString("value"), blob.Meta{})))
+
+	entry, err := s.Read(ctx, "same")
+	require.NoError(t, err)
+
+	rc, err := entry.Open()
+	require.NoError(t, err)
+
+	require.NoError(t, s.Delete(ctx, "same"))
+
+	result := s.Repair()
+	assert.Equal(t, RepairResult{}, result)
+
+	require.NoError(t, rc.Close())
+}
+
+func TestStorage_repairContinuesAfterOrphanRemoveFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	s, err := NewStorage[string](dir)
+	require.NoError(t, err)
+
+	orphanA := filepath.Join(dir, dataDirName, "orphan-a"+fileExt)
+	orphanB := filepath.Join(dir, dataDirName, "nested", "orphan-b"+fileExt)
+
+	defer func() {
+		require.NoError(t, os.Chmod(filepath.Join(dir, dataDirName), 0o750))
+		require.NoError(t, os.Chmod(filepath.Dir(orphanB), 0o750))
+		require.NoError(t, s.Close())
+	}()
+
+	require.NoError(t, os.WriteFile(orphanA, []byte("a"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Dir(orphanB), 0o750))
+	require.NoError(t, os.WriteFile(orphanB, []byte("b"), 0o600))
+	require.NoError(t, os.Chmod(filepath.Dir(orphanB), 0o500))
+
+	var (
+		callbackPaths []string
+		callbackErrs  int
+		reportedErrs  int
+	)
+
+	result := s.Repair(func(cfg *RepairConfig[string]) {
+		cfg.OnOrphanFile = func(path string, removeErr error) {
+			callbackPaths = append(callbackPaths, path)
+
+			if removeErr != nil {
+				callbackErrs++
+			}
+		}
+		cfg.OnError = func(err error) {
+			reportedErrs++
+		}
+	})
+
+	sort.Strings(callbackPaths)
+
+	expectedPaths := []string{orphanA, orphanB}
+	sort.Strings(expectedPaths)
+
+	assert.Equal(t, RepairResult{
+		OrphanFiles:  2,
+		RemovedFiles: 1,
+	}, result)
+	assert.Equal(t, expectedPaths, callbackPaths)
+	assert.Equal(t, 1, callbackErrs)
+	assert.Equal(t, 1, reportedErrs)
 }
