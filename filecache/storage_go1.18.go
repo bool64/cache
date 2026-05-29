@@ -33,6 +33,7 @@ const (
 var (
 	_     cache.ReadWriterBy[string, blob.Entry]     = (*Storage[string])(nil)
 	_     cache.WriteAndReaderBy[string, blob.Entry] = (*Storage[string])(nil)
+	_     cache.WalkerBy[string, blob.Entry]         = (*Storage[string])(nil)
 	bgCtx                                            = context.Background()
 )
 
@@ -47,11 +48,12 @@ type Storage[K comparable] struct {
 	limit uint64
 	bytes int64
 
+	closeMu     sync.Mutex
+	closed      bool
 	mu          sync.Mutex
 	openedFiles map[string]*openedFile
 
 	openedWait sync.WaitGroup
-	closeOnce  sync.Once
 }
 
 type storedEntry struct {
@@ -64,9 +66,42 @@ type openedFile struct {
 	dead bool
 }
 
+type invalidEntry[K comparable] struct {
+	key     K
+	version string
+}
+
+type invalidReport[K comparable] struct {
+	key       K
+	path      string
+	removeErr error
+}
+
+type orphanReport struct {
+	path      string
+	removeErr error
+}
+
 type blobInstance struct {
 	open func() (io.ReadCloser, error)
 	meta blob.Meta
+}
+
+// RepairResult summarizes filecache reconciliation results.
+type RepairResult struct {
+	InvalidEntries int
+	OrphanFiles    int
+	RemovedEntries int
+	RemovedFiles   int
+}
+
+// RepairConfig controls best-effort storage reconciliation.
+type RepairConfig[K comparable] struct {
+	DryRun bool
+
+	OnInvalidEntry func(key K, path string, removeErr error)
+	OnOrphanFile   func(path string, removeErr error)
+	OnError        func(error)
 }
 
 func (b *blobInstance) Meta() blob.Meta {
@@ -270,17 +305,254 @@ func (s *Storage[K]) Delete(ctx context.Context, key K) error {
 	return s.index.Delete(ctx, key)
 }
 
-// Close dumps the in-memory index and stops background jobs.
-func (s *Storage[K]) Close() error {
-	var err error
+// Walk traverses all entries in the storage, applying the provided callback function to each entry.
+// Returns the number of entries processed and any error encountered during the traversal.
+func (s *Storage[K]) Walk(cb func(entry cache.EntryBy[K, blob.Entry]) error) (int, error) {
+	return s.index.Walk(func(e cache.EntryBy[K, storedEntry]) error {
+		v := e.Value()
 
-	s.closeOnce.Do(func() {
-		err = s.dumpIndex()
-		s.index = nil
-		s.openedWait.Wait()
+		b := blobInstance{
+			meta: v.Meta,
+			open: func() (io.ReadCloser, error) {
+				return s.openVersion(v.Version)
+			},
+		}
+
+		t := cache.TraitEntryBy[K, blob.Entry]{
+			K: e.Key(),
+			V: &b,
+			E: e.ExpireAt().UnixNano(),
+		}
+
+		return cb(t)
+	})
+}
+
+// Repair checks indexed entries against blob files and removes broken entries and orphaned files best-effort.
+func (s *Storage[K]) Repair(options ...func(*RepairConfig[K])) RepairResult {
+	cfg := RepairConfig[K]{}
+
+	for _, option := range options {
+		option(&cfg)
+	}
+
+	s.closeMu.Lock()
+	if s.closed || s.index == nil {
+		s.closeMu.Unlock()
+
+		return RepairResult{}
+	}
+
+	liveVersions, invalidEntries := s.collectInvalidEntries(&cfg)
+
+	result := RepairResult{
+		InvalidEntries: len(invalidEntries),
+	}
+
+	invalidReports := s.repairInvalidEntries(&cfg, invalidEntries, &result)
+	orphanPaths := s.collectOrphanPaths(&cfg, liveVersions)
+	s.closeMu.Unlock()
+
+	result.OrphanFiles = len(orphanPaths)
+
+	orphanReports := s.repairOrphanFiles(&cfg, orphanPaths, &result)
+	s.reportRepair(invalidReports, orphanReports, &cfg)
+
+	return result
+}
+
+func (s *Storage[K]) collectInvalidEntries(cfg *RepairConfig[K]) (map[string]struct{}, []invalidEntry[K]) {
+	liveVersions := make(map[string]struct{})
+	invalidEntries := make([]invalidEntry[K], 0)
+
+	_, _ = s.index.Walk(func(entry cache.EntryBy[K, storedEntry]) error {
+		value := entry.Value()
+		liveVersions[value.Version] = struct{}{}
+
+		path := s.pathForVersion(value.Version)
+		if _, err := os.Stat(path); err != nil {
+			invalidEntries = append(invalidEntries, invalidEntry[K]{
+				key:     entry.Key(),
+				version: value.Version,
+			})
+
+			s.reportRepairError(cfg, err, os.ErrNotExist)
+		}
+
+		return nil
 	})
 
-	return err
+	return liveVersions, invalidEntries
+}
+
+func (s *Storage[K]) repairInvalidEntries(
+	cfg *RepairConfig[K],
+	invalidEntries []invalidEntry[K],
+	result *RepairResult,
+) []invalidReport[K] {
+	invalidReports := make([]invalidReport[K], 0, len(invalidEntries))
+
+	for _, invalid := range invalidEntries {
+		path := s.pathForVersion(invalid.version)
+		report := invalidReport[K]{
+			key:  invalid.key,
+			path: path,
+		}
+
+		if !cfg.DryRun {
+			err := s.index.Delete(bgCtx, invalid.key)
+			if err != nil && !errors.Is(err, cache.ErrNotFound) {
+				report.removeErr = err
+				s.reportRepairError(cfg, err)
+			}
+
+			if err == nil {
+				result.RemovedEntries++
+			}
+		}
+
+		invalidReports = append(invalidReports, report)
+	}
+
+	return invalidReports
+}
+
+func (s *Storage[K]) collectPendingDeadVersions() map[string]struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pendingDead := make(map[string]struct{}, len(s.openedFiles))
+
+	for version, opened := range s.openedFiles {
+		if opened == nil || !opened.dead {
+			continue
+		}
+
+		pendingDead[version] = struct{}{}
+	}
+
+	return pendingDead
+}
+
+func (s *Storage[K]) collectOrphanPaths(cfg *RepairConfig[K], liveVersions map[string]struct{}) []string {
+	pendingDead := s.collectPendingDeadVersions()
+	orphanPaths := make([]string, 0)
+
+	_ = filepath.WalkDir(s.dataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			s.reportRepairError(cfg, err)
+
+			return nil
+		}
+
+		if d.IsDir() || filepath.Ext(d.Name()) != fileExt {
+			return nil
+		}
+
+		version := d.Name()[:len(d.Name())-len(fileExt)]
+
+		if _, ok := liveVersions[version]; ok {
+			return nil
+		}
+
+		if _, ok := pendingDead[version]; ok {
+			return nil
+		}
+
+		orphanPaths = append(orphanPaths, path)
+
+		return nil
+	})
+
+	return orphanPaths
+}
+
+func (s *Storage[K]) repairOrphanFiles(
+	cfg *RepairConfig[K],
+	orphanPaths []string,
+	result *RepairResult,
+) []orphanReport {
+	orphanReports := make([]orphanReport, 0, len(orphanPaths))
+
+	for _, path := range orphanPaths {
+		report := orphanReport{path: path}
+
+		if !cfg.DryRun {
+			err := os.Remove(path)
+			if err != nil {
+				report.removeErr = err
+				s.reportRepairError(cfg, err)
+			}
+
+			if err == nil {
+				result.RemovedFiles++
+			}
+		}
+
+		orphanReports = append(orphanReports, report)
+	}
+
+	return orphanReports
+}
+
+func (s *Storage[K]) reportRepair(
+	invalidReports []invalidReport[K],
+	orphanReports []orphanReport,
+	cfg *RepairConfig[K],
+) {
+	for _, report := range invalidReports {
+		if cfg.OnInvalidEntry == nil {
+			continue
+		}
+
+		cfg.OnInvalidEntry(report.key, report.path, report.removeErr)
+	}
+
+	for _, report := range orphanReports {
+		if cfg.OnOrphanFile == nil {
+			continue
+		}
+
+		cfg.OnOrphanFile(report.path, report.removeErr)
+	}
+}
+
+func (s *Storage[K]) reportRepairError(cfg *RepairConfig[K], err error, ignored ...error) {
+	if err == nil || cfg.OnError == nil {
+		return
+	}
+
+	for _, ignore := range ignored {
+		if errors.Is(err, ignore) {
+			return
+		}
+	}
+
+	cfg.OnError(err)
+}
+
+// Close dumps the in-memory index and stops background jobs.
+func (s *Storage[K]) Close() error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+
+		return nil
+	}
+
+	if err := s.flush(); err != nil {
+		s.closeMu.Unlock()
+
+		return err
+	}
+
+	s.index = nil
+	s.closed = true
+	s.closeMu.Unlock()
+
+	s.openedWait.Wait()
+
+	return nil
 }
 
 func (s *Storage[K]) currentEntry(ctx context.Context, key K) (storedEntry, bool) {
@@ -462,7 +734,19 @@ func (s *Storage[K]) recountStoredBytes() {
 	atomic.StoreInt64(&s.bytes, total)
 }
 
-func (s *Storage[K]) dumpIndex() (err error) {
+// Flush writes the in-memory index to persistent storage, ensuring data consistency and integrity.
+func (s *Storage[K]) Flush() (err error) {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+
+	return s.flush()
+}
+
+func (s *Storage[K]) flush() (err error) {
 	tmp, err := os.CreateTemp(s.dir, indexFileName+".tmp-*")
 	if err != nil {
 		return err
